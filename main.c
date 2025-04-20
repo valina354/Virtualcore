@@ -7,7 +7,7 @@
 #define NUM_REGISTERS 16
 #define MAX_PROGRAM_SIZE 1024
 
-typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, SWAP, CLR } InstructionType;
+typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, XCHG, CLR } InstructionType;
 
 typedef struct {
     int registers[NUM_REGISTERS];
@@ -39,7 +39,7 @@ InstructionType parseInstruction(char* instruction) {
     if (strcmp(instruction, "NEG") == 0) return NEG;
     if (strcmp(instruction, "INC") == 0) return INC;
     if (strcmp(instruction, "DEC") == 0) return DEC;
-    if (strcmp(instruction, "SWAP") == 0) return SWAP;
+    if (strcmp(instruction, "XCHG") == 0) return XCHG;
     if (strcmp(instruction, "CLR") == 0) return CLR;
     return -1;
 }
@@ -150,7 +150,7 @@ void dec(VirtualCPU* cpu, int reg1) {
     cpu->registers[reg1]--;
 }
 
-void swap(VirtualCPU* cpu, int reg1, int reg2) {
+void xchg(VirtualCPU* cpu, int reg1, int reg2) {
     int temp = cpu->registers[reg1];
     cpu->registers[reg1] = cpu->registers[reg2];
     cpu->registers[reg2] = temp;
@@ -288,10 +288,10 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             sscanf(instruction, "DEC R%d", &reg1);
             dec(cpu, reg1);
         }
-        else if (inst == SWAP) {
+        else if (inst == XCHG) {
             int reg1, reg2;
-            sscanf(instruction, "SWAP R%d, R%d", &reg1, &reg2);
-            swap(cpu, reg1, reg2);
+            sscanf(instruction, "XCHG R%d, R%d", &reg1, &reg2);
+            xchg(cpu, reg1, reg2);
         }
         else if (inst == CLR) {
             int reg1;

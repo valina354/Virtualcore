@@ -7,7 +7,7 @@
 #define NUM_REGISTERS 16
 #define MAX_PROGRAM_SIZE 1024
 
-typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, XCHG, CLR, PUSH, POP, CALL, RET} InstructionType;
+typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL, ROR} InstructionType;
 
 typedef struct {
     int registers[NUM_REGISTERS];
@@ -45,6 +45,8 @@ InstructionType parseInstruction(char* instruction) {
     if (strcmp(instruction, "POP") == 0) return POP;
     if (strcmp(instruction, "CALL") == 0) return CALL;
     if (strcmp(instruction, "RET") == 0) return RET;
+    if (strcmp(instruction, "ROL") == 0) return ROL;
+    if (strcmp(instruction, "ROR") == 0) return ROR;
     return -1;
 }
 
@@ -205,6 +207,20 @@ void ret(VirtualCPU* cpu) {
     cpu->registers[15]++;
 }
 
+void rol(VirtualCPU* cpu, int reg1, int count) {
+    unsigned int val = cpu->registers[reg1];
+    int bit_size = sizeof(cpu->registers[reg1]) * 8;
+    count %= bit_size;
+    cpu->registers[reg1] = (val << count) | (val >> (bit_size - count));
+}
+
+void ror(VirtualCPU* cpu, int reg1, int count) {
+    unsigned int val = cpu->registers[reg1];
+    int bit_size = sizeof(cpu->registers[reg1]) * 8;
+    count %= bit_size;
+    cpu->registers[reg1] = (val >> count) | (val << (bit_size - count));
+}
+
 void execute(VirtualCPU* cpu, char* program[], int program_size) {
     while (cpu->ip < program_size) {
         char* instruction = program[cpu->ip];
@@ -361,6 +377,16 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
         else if (inst == RET) {
             ret(cpu);
             continue;
+        }
+        else if (inst == ROL) {
+            int reg1, count;
+            sscanf(instruction, "ROL R%d, %d", &reg1, &count);
+            rol(cpu, reg1, count);
+        }
+        else if (inst == ROR) {
+            int reg1, count;
+            sscanf(instruction, "ROR R%d, %d", &reg1, &count);
+            ror(cpu, reg1, count);
         }
 
         cpu->ip++;

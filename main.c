@@ -1065,25 +1065,25 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             }
             else { fprintf(stderr, "Error: Invalid RND format at line %d\n", cpu->ip + 1); }
             break;
-        case STRMOV:
-            if (sscanf(current_instruction_line, "%*s %d, \"%[^\"]\"", &operands[0], str_operand) == 2) {
-                int addr = operands[0];
+        case STRMOV: {
+            int addr;
+            char str[256];
+            if (sscanf(current_instruction_line, "STRMOV %d, \"%[^\"]\"", &addr, str) == 2) {
                 if (addr >= 0 && addr < MEMORY_SIZE) {
-                    size_t len = strlen(str_operand);
-                    size_t max_copy = (MEMORY_SIZE - addr - 1);
-                    if (len > max_copy) {
-                        fprintf(stderr, "Warning: STRMOV string truncated at line %d (address %d)\n", cpu->ip + 1, addr);
-                        len = max_copy;
+                    for (int i = 0; str[i] != '\0'; i++) {
+                        cpu->memory[addr + i] = str[i];
                     }
-                    memcpy(&cpu->memory[addr], str_operand, len);
-                    cpu->memory[addr + len] = 0;
+                    cpu->memory[addr + strlen(str)] = 0;
                 }
                 else {
                     fprintf(stderr, "Error: Invalid STRMOV memory address %d at line %d\n", addr, cpu->ip + 1);
                 }
             }
-            else { fprintf(stderr, "Error: Invalid STRMOV format at line %d\n", cpu->ip + 1); }
+            else {
+                fprintf(stderr, "Error: Invalid STRMOV format at line %d\n", cpu->ip + 1);
+            }
             break;
+        }
 
         case INVALID_INST:
         default:

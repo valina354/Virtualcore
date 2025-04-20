@@ -1,0 +1,4 @@
+STRMOV 100, "Hello, World!"
+MOV R0, 100
+INT 0x02
+HLT

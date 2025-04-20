@@ -7,7 +7,7 @@
 #define NUM_REGISTERS 16
 #define MAX_PROGRAM_SIZE 1024
 
-typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, XCHG, CLR } InstructionType;
+typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, XCHG, CLR, PUSH, POP, CALL, RET} InstructionType;
 
 typedef struct {
     int registers[NUM_REGISTERS];
@@ -41,6 +41,10 @@ InstructionType parseInstruction(char* instruction) {
     if (strcmp(instruction, "DEC") == 0) return DEC;
     if (strcmp(instruction, "XCHG") == 0) return XCHG;
     if (strcmp(instruction, "CLR") == 0) return CLR;
+    if (strcmp(instruction, "PUSH") == 0) return PUSH;
+    if (strcmp(instruction, "POP") == 0) return POP;
+    if (strcmp(instruction, "CALL") == 0) return CALL;
+    if (strcmp(instruction, "RET") == 0) return RET;
     return -1;
 }
 
@@ -106,7 +110,7 @@ void shr(VirtualCPU* cpu, int reg1, int count) {
 }
 void jmp(VirtualCPU* cpu, int line_number) {
     if (line_number >= 1) {
-        cpu->ip = line_number - 1;
+        cpu->ip = line_number;
         if (cpu->ip < 0) cpu->ip = 0;
     }
     else {
@@ -158,6 +162,47 @@ void xchg(VirtualCPU* cpu, int reg1, int reg2) {
 
 void clr(VirtualCPU* cpu, int reg1) {
     cpu->registers[reg1] = 0;
+}
+
+void push(VirtualCPU* cpu, int reg1) {
+    cpu->registers[15]--;
+    if (cpu->registers[15] < 0) {
+        printf("Error: Stack Overflow\n");
+        cpu->registers[15] = 0;
+        return;
+    }
+    cpu->memory[cpu->registers[15]] = cpu->registers[reg1];
+}
+
+void pop(VirtualCPU* cpu, int reg1) {
+    if (cpu->registers[15] >= MEMORY_SIZE) {
+        printf("Error: Stack Underflow\n");
+        cpu->registers[15] = MEMORY_SIZE - 1;
+        return;
+    }
+    cpu->registers[reg1] = cpu->memory[cpu->registers[15]];
+    cpu->registers[15]++;
+}
+
+void call(VirtualCPU* cpu, int line_number) {
+    cpu->registers[15]--;
+    if (cpu->registers[15] < 0) {
+        printf("Error: Stack Overflow\n");
+        cpu->registers[15] = 0;
+        return;
+    }
+    cpu->memory[cpu->registers[15]] = cpu->ip + 1;
+    jmp(cpu, line_number);
+}
+
+void ret(VirtualCPU* cpu) {
+    if (cpu->registers[15] >= MEMORY_SIZE) {
+        printf("Error: Stack Underflow during RET\n");
+        cpu->registers[15] = MEMORY_SIZE - 1;
+        return;
+    }
+    cpu->ip = cpu->memory[cpu->registers[15]];
+    cpu->registers[15]++;
 }
 
 void execute(VirtualCPU* cpu, char* program[], int program_size) {
@@ -297,6 +342,25 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             int reg1;
             sscanf(instruction, "CLR R%d", &reg1);
             clr(cpu, reg1);
+        } else if (inst == PUSH) {
+            int reg1;
+            sscanf(instruction, "PUSH R%d", &reg1);
+            push(cpu, reg1);
+        }
+        else if (inst == POP) {
+            int reg1;
+            sscanf(instruction, "POP R%d", &reg1);
+            pop(cpu, reg1);
+        }
+        else if (inst == CALL) {
+            int line_number;
+            sscanf(instruction, "CALL %d", &line_number);
+            call(cpu, line_number);
+            continue;
+        }
+        else if (inst == RET) {
+            ret(cpu);
+            continue;
         }
 
         cpu->ip++;
@@ -350,6 +414,7 @@ int main() {
     }
 
     VirtualCPU cpu = { {0}, {0}, 0, 0 };
+    cpu.registers[15] = MEMORY_SIZE;
     execute(&cpu, program, program_size);
 
     for (int i = 0; i < program_size; i++) {

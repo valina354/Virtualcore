@@ -3,11 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MEMORY_SIZE 256
+#define MEMORY_SIZE (128 * 1024)
 #define NUM_REGISTERS 16
 #define MAX_PROGRAM_SIZE 1024
 
-typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL, ROR} InstructionType;
+typedef enum { MOV, ADD, SUB, MUL, DIV, INT, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP, CMP, JNE, JMPH, JMPL, NEG, INC ,DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL, ROR, STRMOV} InstructionType;
 
 typedef struct {
     int registers[NUM_REGISTERS];
@@ -47,6 +47,7 @@ InstructionType parseInstruction(char* instruction) {
     if (strcmp(instruction, "RET") == 0) return RET;
     if (strcmp(instruction, "ROL") == 0) return ROL;
     if (strcmp(instruction, "ROR") == 0) return ROR;
+    if (strcmp(instruction, "STRMOV") == 0) return STRMOV;
     return -1;
 }
 
@@ -78,6 +79,14 @@ void divi(VirtualCPU* cpu, int reg1, int reg2) {
 void interrupt(VirtualCPU* cpu, int interrupt_id) {
     if (interrupt_id == 0x01) {
         printf("%d\n", cpu->registers[0]);
+    }
+    else if (interrupt_id == 0x02) {
+        int addr = cpu->registers[0];
+        while (cpu->memory[addr] != 0) {
+            putchar(cpu->memory[addr]);
+            addr++;
+        }
+        putchar('\n');
     }
     else {
         printf("Error: Unknown interrupt 0x%x\n", interrupt_id);
@@ -387,6 +396,15 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             int reg1, count;
             sscanf(instruction, "ROR R%d, %d", &reg1, &count);
             ror(cpu, reg1, count);
+        }
+        else if (inst == STRMOV) {
+            int addr;
+            char str[256];
+            sscanf(instruction, "STRMOV %d, \"%[^\"]\"", &addr, str);
+            for (int i = 0; str[i] != '\0'; i++) {
+                cpu->memory[addr + i] = str[i];
+            }
+            cpu->memory[addr + strlen(str)] = 0;
         }
 
         cpu->ip++;

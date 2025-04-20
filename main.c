@@ -676,6 +676,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
     case INT_SCREEN_ON:
         cpu->screen_on = 1;
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
         break;
 
     case INT_SCREEN_OFF:

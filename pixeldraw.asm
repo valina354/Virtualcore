@@ -1,0 +1,14 @@
+MOV R0, 256
+MOV R1, 256
+MOV R2, 256
+MOV R3, 50
+INT 0x16
+INT 0x18
+MOV R0, 128
+MOV R1, 96
+MOV R2, 2
+INT 0x14
+JMP stuck
+stuck:
+NOP
+JMP stuck

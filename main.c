@@ -22,6 +22,7 @@
 #define DEFAULT_SCREEN_HEIGHT 192
 #define MAX_SCREEN_DIM 1024
 #define PALETTE_SIZE 16
+#define MAX_DEFINES 256 
 
 typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
@@ -29,6 +30,11 @@ typedef enum {
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS,
     INVALID_INST
 } InstructionType;
+
+typedef struct {
+    char name[64];
+    char value[64];
+} DefineEntry;
 
 #define FLAG_ZERO   0x01
 #define FLAG_GREATER 0x02
@@ -341,6 +347,9 @@ int loadProgram(const char* filename, char* program[], int max_size) {
     char* temp_program[MAX_PROGRAM_SIZE];
     int temp_line_count = 0;
 
+    DefineEntry define_map[MAX_DEFINES];
+    int define_count = 0;
+
     while (fgets(buffer, sizeof(buffer), file) != NULL && temp_line_count < max_size) {
         buffer[strcspn(buffer, "\n")] = 0;
         char* comment_start = strchr(buffer, ';');
@@ -352,6 +361,38 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         char* end = start + strlen(start) - 1;
         while (end > start && isspace((unsigned char)*end)) end--;
         *(end + 1) = '\0';
+
+        if (strncmp(start, "#define", 7) == 0 && isspace((unsigned char)start[7])) {
+            char define_name[64];
+            char define_value[64];
+            int scan_count = sscanf(start + 7, " %63s %63s", define_name, define_value);
+
+            if (scan_count == 2) {
+                if (define_count < MAX_DEFINES) {
+                    bool duplicate = false;
+                    for (int k = 0; k < define_count; ++k) {
+                        if (strcmp(define_map[k].name, define_name) == 0) {
+                            fprintf(stderr, "Warning: Duplicate define for '%s' ignored.\n", define_name);
+                            duplicate = true;
+                            break;
+                        }
+                    }
+                    if (!duplicate) {
+                        strcpy(define_map[define_count].name, define_name);
+                        strcpy(define_map[define_count].value, define_value);
+                        define_count++;
+                    }
+                }
+                else {
+                    fprintf(stderr, "Error: Maximum number of defines (%d) exceeded.\n", MAX_DEFINES);
+                }
+            }
+            else {
+                fprintf(stderr, "Warning: Invalid #define format: '%s'. Skipping.\n", start);
+            }
+            continue;
+        }
+
         if (strlen(start) == 0) {
             continue;
         }
@@ -372,6 +413,91 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         return -3;
     }
 
+    for (int i = 0; i < temp_line_count; i++) {
+        char* original_line = temp_program[i];
+        if (!original_line) continue; 
+
+        char processed_line[MAX_LINE_LENGTH * 2] = { 0 }; 
+        char token_buffer[MAX_LINE_LENGTH];
+        char* current_pos = original_line;
+        bool line_changed = false;
+
+        char op_check[10];
+        sscanf(original_line, "%9s", op_check);
+        bool is_strmov = (strcmp(op_check, "STRMOV") == 0);
+        char* quote_start = is_strmov ? strchr(original_line, '"') : NULL;
+        char* first_token_end = strpbrk(original_line, " \t,");
+
+        if (first_token_end) {
+            strncpy(processed_line, original_line, first_token_end - original_line);
+            current_pos = first_token_end;
+        }
+        else {
+            strcat(processed_line, original_line);
+            current_pos = original_line + strlen(original_line);
+        }
+
+        while (*current_pos != '\0') {
+            char* separator_start = current_pos;
+            while (*current_pos != '\0' && (isspace((unsigned char)*current_pos) || *current_pos == ',')) {
+                current_pos++;
+            }
+            if (current_pos > separator_start) {
+                strncat(processed_line, separator_start, current_pos - separator_start);
+            }
+            if (*current_pos == '\0') break;
+
+            if (quote_start && current_pos >= quote_start) {
+                strcat(processed_line, current_pos);
+                current_pos += strlen(current_pos);
+                break;
+            }
+
+            char* token_start = current_pos;
+            int token_len = 0;
+            while (*current_pos != '\0' && !isspace((unsigned char)*current_pos) && *current_pos != ',') {
+                current_pos++;
+                token_len++;
+            }
+            if (token_len == 0) break;
+            if (token_len >= MAX_LINE_LENGTH) {
+                fprintf(stderr, "Error: Token too long near '%.*s' on line %d\n", 20, token_start, i + 1);
+                token_len = MAX_LINE_LENGTH - 1;
+                strncpy(token_buffer, token_start, token_len);
+                token_buffer[token_len] = '\0';
+                strcat(processed_line, token_buffer);
+                continue;
+            }
+            strncpy(token_buffer, token_start, token_len);
+            token_buffer[token_len] = '\0';
+
+            bool replaced = false;
+            if (token_buffer[0] != 'R' || !isdigit((unsigned char)token_buffer[1])) {
+                if (!isdigit((unsigned char)token_buffer[0]) && token_buffer[0] != '-') {
+                    for (int j = 0; j < define_count; j++) {
+                        if (strcmp(token_buffer, define_map[j].name) == 0) {
+                            strcat(processed_line, define_map[j].value);
+                            replaced = true;
+                            line_changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!replaced) {
+                strcat(processed_line, token_buffer);
+            }
+        }
+
+        if (line_changed) {
+            free(temp_program[i]);
+            temp_program[i] = strdup_portable(processed_line);
+            if (!temp_program[i]) {
+                fprintf(stderr, "Error: Memory allocation failed during define substitution.\n");
+            }
+        }
+    }
 
     typedef struct {
         char label_name[64];

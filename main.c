@@ -647,6 +647,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
                 ((Uint32)palette_color.b);
             cpu->pixels[y * cpu->screen_width + x] = color;
         }
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
     }
     break;
 
@@ -664,6 +667,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
             for (int i = 0; i < cpu->screen_width * cpu->screen_height; i++) {
                 cpu->pixels[i] = clear_color;
             }
+        }
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
         }
     }
     break;
@@ -1095,11 +1101,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
         if (running && cpu->ip == current_ip) {
             cpu->ip++;
         }
-
-        if (cpu->screen_on) {
-            updateScreen(cpu);
-        }
-
     }
 
     if (cpu->halted_by_hlt) {

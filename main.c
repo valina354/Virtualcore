@@ -27,8 +27,7 @@
 typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
-    ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS,
-    LOOP,
+    ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE,
     INVALID_INST
 } InstructionType;
 
@@ -137,6 +136,8 @@ void pow_op(VirtualCPU* cpu, int reg1, int reg2);
 void sqrt_op(VirtualCPU* cpu, int reg1);
 void abs_op(VirtualCPU* cpu, int reg1);
 void loop_op(VirtualCPU* cpu, int counter_reg, int target_line);
+void load_op(VirtualCPU* cpu, int dest_reg, int addr_src_reg);
+void store_op(VirtualCPU* cpu, int val_src_reg, int addr_dest_reg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -336,6 +337,8 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "SQRT") == 0) return SQRT;
     if (strcmp(instruction, "ABS") == 0) return ABS;
     if (strcmp(instruction, "LOOP") == 0) return LOOP;
+    if (strcmp(instruction, "LOAD") == 0) return LOAD;
+    if (strcmp(instruction, "STORE") == 0) return STORE;
     return INVALID_INST;
 }
 
@@ -1280,6 +1283,23 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             }
             break;
         }
+        case LOAD:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
+                load_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid LOAD format at line %d (Expected: LOAD Rdest, Raddr_src)\n", cpu->ip + 1);
+            }
+            break;
+
+        case STORE:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
+                store_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid STORE format at line %d (Expected: STORE Rval_src, Raddr_dest)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -1641,6 +1661,45 @@ void rnd(VirtualCPU* cpu, int reg1) {
     cpu->registers[reg1] = rand();
 }
 
+void load_op(VirtualCPU* cpu, int dest_reg, int addr_src_reg) {
+    if (!isValidReg(dest_reg)) {
+        fprintf(stderr, "Error LOAD: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+        return;
+    }
+    if (!isValidReg(addr_src_reg)) {
+        fprintf(stderr, "Error LOAD: Invalid address source register R%d at line %d\n", addr_src_reg, cpu->ip + 1);
+        return;
+    }
+
+    int address = cpu->registers[addr_src_reg];
+
+    if (!isValidMem(address)) {
+        fprintf(stderr, "Error LOAD: Invalid memory address %d (0x%X) in R%d at line %d\n", address, address, addr_src_reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->registers[dest_reg] = cpu->memory[address];
+}
+
+void store_op(VirtualCPU* cpu, int val_src_reg, int addr_dest_reg) {
+    if (!isValidReg(val_src_reg)) {
+        fprintf(stderr, "Error STORE: Invalid value source register R%d at line %d\n", val_src_reg, cpu->ip + 1);
+        return;
+    }
+    if (!isValidReg(addr_dest_reg)) {
+        fprintf(stderr, "Error STORE: Invalid address destination register R%d at line %d\n", addr_dest_reg, cpu->ip + 1);
+        return;
+    }
+
+    int address = cpu->registers[addr_dest_reg];
+
+    if (!isValidMem(address)) {
+        fprintf(stderr, "Error STORE: Invalid memory address %d (0x%X) in R%d at line %d\n", address, address, addr_dest_reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->memory[address] = cpu->registers[val_src_reg];
+}
 
 void audioCallback(void* userdata, Uint8* stream, int len) {
     VirtualCPU* cpu = (VirtualCPU*)userdata;

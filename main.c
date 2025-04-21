@@ -29,6 +29,7 @@ typedef enum {
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
+    STRCMP, STRLEN, STRCPY,
     INVALID_INST
 } InstructionType;
 
@@ -151,6 +152,9 @@ void bt_op(VirtualCPU* cpu, int reg1, int bit_index);
 void bset_op(VirtualCPU* cpu, int reg1, int bit_index);
 void bclr_op(VirtualCPU* cpu, int reg1, int bit_index);
 void btog_op(VirtualCPU* cpu, int reg1, int bit_index);
+void strcmp_op(VirtualCPU* cpu, int reg_addr1, int reg_addr2);
+void strlen_op(VirtualCPU* cpu, int reg_dest, int reg_addr);
+void strcpy_op(VirtualCPU* cpu, int reg_dest_addr, int reg_src_addr);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -366,6 +370,9 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "BSET") == 0) return BSET;
     if (strcmp(instruction, "BCLR") == 0) return BCLR;
     if (strcmp(instruction, "BTOG") == 0) return BTOG;
+    if (strcmp(instruction, "STRCMP") == 0) return STRCMP;
+    if (strcmp(instruction, "STRLEN") == 0) return STRLEN;
+    if (strcmp(instruction, "STRCPY") == 0) return STRCPY;
     return INVALID_INST;
 }
 
@@ -562,7 +569,20 @@ int loadProgram(const char* filename, char* program[], int max_size) {
 
     for (int i = 0; i < temp_line_count; i++) {
         char* line = temp_program[i];
-        char* colon_pos = strchr(line, ':');
+        if (!line) continue;
+
+        char* colon_pos = NULL;
+        bool in_quotes = false;
+
+        for (char* p = line; *p; ++p) {
+            if (*p == '"') {
+                in_quotes = !in_quotes;
+            }
+            else if (*p == ':' && !in_quotes) {
+                colon_pos = p;
+                break;
+            }
+        }
 
         if (colon_pos != NULL) {
             *colon_pos = '\0';
@@ -1317,24 +1337,72 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             else { fprintf(stderr, "Error: Invalid RND format at line %d\n", cpu->ip + 1); }
             break;
         case STRMOV: {
-            int addr;
-            char str[256];
-            if (sscanf(current_instruction_line, "STRMOV %d, \"%[^\"]\"", &addr, str) == 2) {
+                // Manually parse STRMOV arguments for robustness
+                char* args_start = strchr(current_instruction_line, ' ');
+                if (!args_start) {
+                    fprintf(stderr, "Error: Invalid STRMOV format (no arguments) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                    running = false;
+                    break;
+                }
+                args_start++;
+
+                char* end_ptr_addr;
+                long parsed_addr = strtol(args_start, &end_ptr_addr, 10);
+                if (end_ptr_addr == args_start) {
+                    fprintf(stderr, "Error: Invalid STRMOV format (cannot parse address) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                    running = false;
+                    break;
+                }
+                int addr = (int)parsed_addr;
+
+                char* comma_ptr = strchr(end_ptr_addr, ',');
+                if (!comma_ptr) {
+                    fprintf(stderr, "Error: Invalid STRMOV format (missing comma) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                    running = false;
+                    break;
+                }
+
+                char* quote_start = strchr(comma_ptr + 1, '"');
+                if (!quote_start) {
+                    fprintf(stderr, "Error: Invalid STRMOV format (missing opening quote) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                    running = false;
+                    break;
+                }
+                quote_start++;
+
+                char* quote_end = strchr(quote_start, '"');
+                if (!quote_end) {
+                    fprintf(stderr, "Error: Invalid STRMOV format (missing closing quote) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                    running = false;
+                    break;
+                }
+
+                size_t str_len = quote_end - quote_start;
+
                 if (addr >= 0 && addr < MEMORY_SIZE) {
-                    for (int i = 0; str[i] != '\0'; i++) {
-                        cpu->memory[addr + i] = str[i];
+                    if (addr + str_len >= MEMORY_SIZE) {
+                         fprintf(stderr, "Error: STRMOV destination out of bounds (addr=%d, len=%zu) at line %d\n", addr, str_len, cpu->ip + 1);
+                         running = false;
+                         break;
                     }
-                    cpu->memory[addr + strlen(str)] = 0;
-                }
-                else {
+
+                    for (size_t i = 0; i < str_len; i++) {
+                        if (quote_start + i >= current_instruction_line + strlen(current_instruction_line)){
+                            fprintf(stderr, "Error: Internal parsing error reading STRMOV string at line %d\n", cpu->ip+1);
+                            running = false;
+                            break;
+                        }
+                        cpu->memory[addr + i] = *(quote_start + i);
+                    }
+                    if (!running) break;
+
+                    cpu->memory[addr + str_len] = 0;
+
+                } else {
                     fprintf(stderr, "Error: Invalid STRMOV memory address %d at line %d\n", addr, cpu->ip + 1);
+                    running = false;
                 }
-            }
-            else {
-                fprintf(stderr, "Error: Invalid STRMOV format at line %d\n", cpu->ip + 1);
-            }
-            break;
-        }
+            } break;
         case LOAD:
             if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
                 load_op(cpu, operands[0], operands[1]);
@@ -1471,6 +1539,32 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             }
             break;
         }
+        case STRCMP:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
+                strcmp_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid STRCMP format at line %d (Expected: STRCMP Raddr1, Raddr2)\n", cpu->ip + 1);
+            }
+            break;
+
+        case STRLEN:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
+                strlen_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid STRLEN format at line %d (Expected: STRLEN Rdest, Raddr)\n", cpu->ip + 1);
+            }
+            break;
+
+        case STRCPY:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
+                strcpy_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid STRCPY format at line %d (Expected: STRCPY Rdest_addr, Rsrc_addr)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -2051,6 +2145,146 @@ void btog_op(VirtualCPU* cpu, int reg1, int bit_index) {
 
     unsigned int mask = 1U << bit_index;
     cpu->registers[reg1] ^= mask;
+}
+
+void strcmp_op(VirtualCPU* cpu, int reg_addr1, int reg_addr2) {
+    if (!isValidReg(reg_addr1) || !isValidReg(reg_addr2)) {
+        fprintf(stderr, "Error STRCMP: Invalid register R%d or R%d at line %d\n", reg_addr1, reg_addr2, cpu->ip + 1);
+        return;
+    }
+
+    int addr1 = cpu->registers[reg_addr1];
+    int addr2 = cpu->registers[reg_addr2];
+
+    if (!isValidMem(addr1) || !isValidMem(addr2)) {
+        fprintf(stderr, "Error STRCMP: Invalid memory address 0x%X or 0x%X at line %d\n", addr1, addr2, cpu->ip + 1);
+        return;
+    }
+
+    int char1, char2;
+    int offset = 0;
+    while (true) {
+        int current_addr1 = addr1 + offset;
+        int current_addr2 = addr2 + offset;
+
+        if (!isValidMem(current_addr1) || !isValidMem(current_addr2)) {
+            fprintf(stderr, "Error STRCMP: Memory access out of bounds during compare at line %d\n", cpu->ip + 1);
+            cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS);
+            cpu->flags |= FLAG_LESS;
+            return;
+        }
+
+        char1 = cpu->memory[current_addr1];
+        char2 = cpu->memory[current_addr2];
+
+        if (char1 == 0 && char2 == 0) {
+            cpu->flags &= ~(FLAG_GREATER | FLAG_LESS);
+            cpu->flags |= FLAG_ZERO;
+            return;
+        }
+        if (char1 != char2) {
+            cpu->flags &= ~FLAG_ZERO;
+            if (char1 > char2) {
+                cpu->flags |= FLAG_GREATER;
+                cpu->flags &= ~FLAG_LESS;
+            }
+            else {
+                cpu->flags |= FLAG_LESS;
+                cpu->flags &= ~FLAG_GREATER;
+            }
+            return;
+        }
+        offset++;
+        if (offset >= MEMORY_SIZE) {
+            fprintf(stderr, "Warning STRCMP: Comparison exceeded safety limit at line %d\n", cpu->ip + 1);
+            cpu->flags &= ~FLAG_ZERO;
+            cpu->flags |= FLAG_LESS;
+            cpu->flags &= ~FLAG_GREATER;
+            return;
+        }
+    }
+}
+
+void strlen_op(VirtualCPU* cpu, int reg_dest, int reg_addr) {
+    if (!isValidReg(reg_dest) || !isValidReg(reg_addr)) {
+        fprintf(stderr, "Error STRLEN: Invalid register R%d or R%d at line %d\n", reg_dest, reg_addr, cpu->ip + 1);
+        return;
+    }
+
+    int addr = cpu->registers[reg_addr];
+    if (!isValidMem(addr)) {
+        fprintf(stderr, "Error STRLEN: Invalid memory address 0x%X in R%d at line %d\n", addr, reg_addr, cpu->ip + 1);
+        cpu->registers[reg_dest] = -1;
+        return;
+    }
+
+    int length = 0;
+    int current_addr = addr;
+    while (isValidMem(current_addr) && cpu->memory[current_addr] != 0) {
+        length++;
+        current_addr++;
+        if (length >= MEMORY_SIZE) {
+            fprintf(stderr, "Warning STRLEN: Length calculation exceeded safety limit at line %d\n", cpu->ip + 1);
+            break;
+        }
+    }
+
+    cpu->registers[reg_dest] = length;
+
+    cpu->flags &= ~FLAG_ZERO;
+    if (length == 0) {
+        cpu->flags |= FLAG_ZERO;
+    }
+}
+
+void strcpy_op(VirtualCPU* cpu, int reg_dest_addr, int reg_src_addr) {
+    if (!isValidReg(reg_dest_addr) || !isValidReg(reg_src_addr)) {
+        fprintf(stderr, "Error STRCPY: Invalid register R%d or R%d at line %d\n", reg_dest_addr, reg_src_addr, cpu->ip + 1);
+        return;
+    }
+
+    int dest_addr = cpu->registers[reg_dest_addr];
+    int src_addr = cpu->registers[reg_src_addr];
+
+    if (!isValidMem(dest_addr) || !isValidMem(src_addr)) {
+        fprintf(stderr, "Error STRCPY: Invalid memory address 0x%X or 0x%X at line %d\n", dest_addr, src_addr, cpu->ip + 1);
+        return;
+    }
+
+    if (dest_addr == src_addr) {
+        return;
+    }
+
+    int offset = 0;
+    int character;
+    while (true) {
+        int current_src_addr = src_addr + offset;
+        int current_dest_addr = dest_addr + offset;
+
+        if (!isValidMem(current_src_addr) || !isValidMem(current_dest_addr)) {
+            fprintf(stderr, "Error STRCPY: Memory access out of bounds during copy at line %d\n", cpu->ip + 1);
+            if (isValidMem(dest_addr + offset - 1) && offset > 0) {
+                cpu->memory[dest_addr + offset - 1] = 0;
+            }
+            return;
+        }
+
+        character = cpu->memory[current_src_addr];
+        cpu->memory[current_dest_addr] = character;
+
+        if (character == 0) {
+            break;
+        }
+
+        offset++;
+        if (offset >= MEMORY_SIZE) {
+            fprintf(stderr, "Warning STRCPY: Copy exceeded safety limit at line %d. Destination might not be null-terminated.\n", cpu->ip + 1);
+            if (isValidMem(current_dest_addr)) {
+                cpu->memory[current_dest_addr] = 0;
+            }
+            break;
+        }
+    }
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

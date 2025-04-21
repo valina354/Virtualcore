@@ -28,6 +28,7 @@ typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS,
+    LOOP,
     INVALID_INST
 } InstructionType;
 
@@ -135,6 +136,7 @@ void mod_op(VirtualCPU* cpu, int reg1, int reg2);
 void pow_op(VirtualCPU* cpu, int reg1, int reg2);
 void sqrt_op(VirtualCPU* cpu, int reg1);
 void abs_op(VirtualCPU* cpu, int reg1);
+void loop_op(VirtualCPU* cpu, int counter_reg, int target_line);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -333,6 +335,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "POW") == 0) return POW;
     if (strcmp(instruction, "SQRT") == 0) return SQRT;
     if (strcmp(instruction, "ABS") == 0) return ABS;
+    if (strcmp(instruction, "LOOP") == 0) return LOOP;
     return INVALID_INST;
 }
 
@@ -569,39 +572,56 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         char* instruction = program[i];
         char op[10];
         char operand1_str[MAX_LINE_LENGTH];
+        char operand2_str[MAX_LINE_LENGTH];
 
-        int scan_count = sscanf(instruction, "%9s %255s", op, operand1_str);
-        if (scan_count < 1) continue;
+        int scan_count = sscanf(instruction, "%9s %[^,], %s", op, operand1_str, operand2_str);
+        if (scan_count < 2) {
+            continue;
+        }
 
         InstructionType inst = parseInstruction(op);
 
-        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ) {
-            if (scan_count == 2 && !isdigit((unsigned char)operand1_str[0]) && operand1_str[0] != '-') {
-                int target_line = -1;
-                for (int j = 0; j < label_count; j++) {
-                    if (strcmp(label_map[j].label_name, operand1_str) == 0) {
-                        target_line = label_map[j].line_number;
-                        break;
-                    }
-                }
+        char* label_operand_str = NULL;
 
-                if (target_line != -1) {
-                    char new_instruction[MAX_LINE_LENGTH];
-                    snprintf(new_instruction, sizeof(new_instruction), "%s %d", op, target_line);
-                    free(program[i]);
-                    program[i] = strdup_portable(new_instruction);
-                    if (!program[i]) {
-                        fprintf(stderr, "Error: Memory allocation failed during label resolution.\n");
-                        return -2;
-                    }
+        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ) {
+            if (scan_count >= 2) label_operand_str = operand1_str;
+        }
+        else if (inst == LOOP) {
+            if (scan_count == 3) label_operand_str = operand2_str;
+        }
+
+
+        if (label_operand_str != NULL && !isdigit((unsigned char)label_operand_str[0]) && label_operand_str[0] != '-') {
+            int target_line = -1;
+            for (int j = 0; j < label_count; j++) {
+                if (strcmp(label_map[j].label_name, label_operand_str) == 0) {
+                    target_line = label_map[j].line_number;
+                    break;
+                }
+            }
+
+            if (target_line != -1) {
+                char new_instruction[MAX_LINE_LENGTH];
+                if (inst == LOOP) {
+                    snprintf(new_instruction, sizeof(new_instruction), "%s %s, %d", op, operand1_str, target_line);
                 }
                 else {
-                    fprintf(stderr, "Error: Label '%s' not found (used in line %d: '%s')\n", operand1_str, i + 1, instruction);
+                    snprintf(new_instruction, sizeof(new_instruction), "%s %d", op, target_line);
+                }
+
+                free(program[i]);
+                program[i] = strdup_portable(new_instruction);
+                if (!program[i]) {
+                    fprintf(stderr, "Error: Memory allocation failed during label resolution.\n");
+                    return -2;
                 }
             }
-            else if (scan_count == 1) {
-                fprintf(stderr, "Error: Missing operand for %s instruction at line %d\n", op, i + 1);
+            else {
+                fprintf(stderr, "Error: Label '%s' not found (used in line %d: '%s')\n", label_operand_str, i + 1, instruction);
             }
+        }
+        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP)) {
+            fprintf(stderr, "Error: Missing or invalid label operand for %s instruction at line %d: '%s'\n", op, i + 1, instruction);
         }
     }
 
@@ -954,6 +974,12 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
     }
 }
 
+bool isValidReg(int reg) {
+    return reg >= 0 && reg < NUM_REGISTERS;
+}
+bool isValidMem(int addr) {
+    return addr >= 0 && addr < MEMORY_SIZE;
+}
 
 void execute(VirtualCPU* cpu, char* program[], int program_size) {
     bool running = true;
@@ -985,12 +1011,39 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
         int current_ip = cpu->ip;
 
         switch (inst) {
-        case MOV:
-            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
-                mov(cpu, operands[0], operands[1]);
+        case MOV: {
+            char operand1_str[64], operand2_str[MAX_LINE_LENGTH];
+            int dest_reg = -1;
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error MOV: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    break;
+                }
+
+                int src_reg = -1;
+                int immediate_val = 0;
+
+                if (operand2_str[0] == 'R' && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error MOV: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                    }
+                    else {
+                        cpu->registers[dest_reg] = cpu->registers[src_reg];
+                    }
+                }
+                else if (sscanf(operand2_str, "%d", &immediate_val) == 1) {
+                    mov(cpu, dest_reg, immediate_val);
+                }
+                else {
+                    fprintf(stderr, "Error: Invalid MOV second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                }
             }
-            else { fprintf(stderr, "Error: Invalid MOV format at line %d\n", cpu->ip + 1); }
+            else {
+                fprintf(stderr, "Error: Invalid MOV format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+            }
             break;
+        }
         case ADD:
             if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
                 add(cpu, operands[0], operands[1]);
@@ -1038,6 +1091,14 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
                 abs_op(cpu, operands[0]);
             }
             else { fprintf(stderr, "Error: Invalid ABS format at line %d\n", cpu->ip + 1); }
+            break;
+        case LOOP:
+            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
+                loop_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid LOOP format at line %d (Expected: LOOP Rx, <line_number>)\n", cpu->ip + 1);
+            }
             break;
         case INTR:
             if (sscanf(current_instruction_line, "%*s %x", &operands[0]) == 1) {
@@ -1247,14 +1308,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
 }
 
 
-bool isValidReg(int reg) {
-    return reg >= 0 && reg < NUM_REGISTERS;
-}
-bool isValidMem(int addr) {
-    return addr >= 0 && addr < MEMORY_SIZE;
-}
-
-
 void mov(VirtualCPU* cpu, int reg1, int value) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error MOV: Invalid register R%d\n", reg1); return; }
     cpu->registers[reg1] = value;
@@ -1344,6 +1397,18 @@ void abs_op(VirtualCPU* cpu, int reg1) {
     }
 }
 
+void loop_op(VirtualCPU* cpu, int counter_reg, int target_line) {
+    if (!isValidReg(counter_reg)) {
+        fprintf(stderr, "Error LOOP: Invalid counter register R%d at line %d\n", counter_reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->registers[counter_reg]--;
+
+    if (cpu->registers[counter_reg] != 0) {
+        jmp(cpu, target_line);
+    }
+}
 
 void nop(VirtualCPU* cpu) {
     (void)cpu;

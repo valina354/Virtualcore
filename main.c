@@ -65,6 +65,34 @@ typedef struct {
 #define INT_DUMP_REGISTERS  0x21 // Print all register values, IP, SP, Flags
 #define INT_DUMP_MEMORY     0x22 // Dump memory from R0 for length R1
 #define INT_GET_TICKS       0x23 // Get SDL Ticks (ms since init) into R0
+#define INT_GET_PIXEL       0x24 // Get pixel color index at (R0, R1) into R0 (-1 if invalid)
+#define INT_GET_KEY_STATE   0x25 // Get state of key (SDL_Scancode in R0). R0=1 if pressed, 0 if not.
+#define INT_WAIT_FOR_KEY    0x26 // Waits for a key press, returns SDL_Scancode in R0.
+#define INT_GET_MOUSE_STATE 0x27 // Get mouse state: R0=X, R1=Y, R2=ButtonMask (1=L, 2=M, 4=R)
+#define INT_GET_MEMORY_SIZE 0x28 // Get configured MEMORY_SIZE into R0
+#define INT_FILE_OPEN       0x29 // Open file (R0=name_addr, R1=mode_addr). Returns handle in R0 (-1 error).
+#define INT_FILE_CLOSE      0x2A // Close file (R0=handle). Returns 0/-1 in R0.
+#define INT_FILE_READ       0x2B // Read file (R0=handle, R1=mem_addr, R2=bytes). Returns bytes read in R0 (-1 error).
+#define INT_FILE_WRITE      0x2C // Write file (R0=handle, R1=mem_addr, R2=bytes). Returns bytes written in R0 (-1 error).
+#define INT_FILE_SEEK       0x2D // Seek file (R0=handle, R1=offset, R2=origin[0=SET,1=CUR,2=END]). Returns 0/-1 in R0.
+#define INT_FILE_TELL       0x2E // Tell file pos (R0=handle). Returns position in R0 (-1 error).
+#define INT_SET_CONSOLE_COLOR 0x2F // Set console text color (R0=FG, R1=BG [Win32 codes])
+#define INT_RESET_CONSOLE_COLOR 0x30 // Reset console color to default
+#define INT_GOTOXY          0x31 // Move console cursor (R0=Col, R1=Row [0-based])
+#define INT_GETXY           0x32 // Get console cursor pos (R0=Col, R1=Row) [Win32 only reliable]
+#define INT_GET_CONSOLE_SIZE 0x33 // Get console dimensions (R0=Width, R1=Height)
+#define INT_SET_CONSOLE_TITLE 0x34 // Set console window title (R0=title_addr)
+#define INT_SYSTEM_SHUTDOWN 0x35 // Requests the emulator session to end
+#define INT_GET_DATETIME    0x36 // Get Date/Time (R0=Y, R1=M, R2=D, R3=h, R4=m, R5=s)
+#define INT_DISK_READ       0x37 // Read sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
+#define INT_DISK_WRITE      0x38 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
+#define INT_DISK_INFO       0x39 // Get disk info -> R0=TotalSectors, R1=SectorSize
+
+#define MAX_OPEN_FILES 16
+
+#define DISK_IMAGE_FILENAME "disk.img"
+#define DISK_IMAGE_SIZE_BYTES (16 * 1024 * 1024) // 16 MB
+#define DISK_SECTOR_SIZE 512
 
 typedef struct {
     int registers[NUM_REGISTERS];
@@ -89,7 +117,14 @@ typedef struct {
     SDL_Color palette[PALETTE_SIZE];
     int screen_on;
 
-    bool halted_by_hlt;
+    bool shutdown_requested;
+
+    FILE* open_files[MAX_OPEN_FILES];
+    bool file_slot_used[MAX_OPEN_FILES];
+
+    FILE* disk_image_fp;
+    long long disk_image_size;
+    int disk_sector_size;
 
 } VirtualCPU;
 
@@ -158,6 +193,13 @@ void strcpy_op(VirtualCPU* cpu, int reg_dest_addr, int reg_src_addr);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
+bool isValidReg(int reg) {
+    return reg >= 0 && reg < NUM_REGISTERS;
+}
+bool isValidMem(int addr) {
+    return addr >= 0 && addr < MEMORY_SIZE;
+}
+
 char* strdup_portable(const char* s) {
     if (s == NULL) {
         return NULL;
@@ -175,6 +217,81 @@ char* strdup_portable(const char* s) {
 #endif
 }
 
+bool initialize_disk_image(VirtualCPU* cpu) {
+    if (cpu->disk_image_fp != NULL) {
+        fclose(cpu->disk_image_fp);
+        cpu->disk_image_fp = NULL;
+    }
+
+    FILE* fp = fopen(DISK_IMAGE_FILENAME, "rb+");
+
+    if (fp == NULL) {
+        printf("Disk image '%s' not found, creating new 16MB file...\n", DISK_IMAGE_FILENAME);
+        fp = fopen(DISK_IMAGE_FILENAME, "wb+");
+        if (fp == NULL) {
+            perror("Error creating disk image file");
+            fprintf(stderr, "Failed to create '%s'. Disk operations will fail.\n", DISK_IMAGE_FILENAME);
+            return false;
+        }
+
+        char* zero_buffer = (char*)calloc(DISK_SECTOR_SIZE, 1);
+        if (!zero_buffer) {
+            fprintf(stderr, "Failed to allocate zero buffer for disk init.\n");
+            fclose(fp);
+            return false;
+        }
+        long long bytes_written = 0;
+        size_t write_result;
+        fseek(fp, 0, SEEK_SET);
+        printf("Writing zeros to disk image (this may take a moment)...\n");
+        while (bytes_written < DISK_IMAGE_SIZE_BYTES) {
+            size_t bytes_to_write = DISK_SECTOR_SIZE;
+            if (bytes_written + bytes_to_write > DISK_IMAGE_SIZE_BYTES) {
+                bytes_to_write = DISK_IMAGE_SIZE_BYTES - bytes_written;
+                if (bytes_to_write == 0) break;
+            }
+            write_result = fwrite(zero_buffer, 1, bytes_to_write, fp);
+            if (write_result != bytes_to_write) {
+                perror("Error writing zeros to new disk image file");
+                fprintf(stderr, "Failed to fully initialize '%s'. Disk operations may fail.\n", DISK_IMAGE_FILENAME);
+                free(zero_buffer);
+                fclose(fp);
+                return false;
+            }
+            bytes_written += write_result;
+        }
+        printf("Disk image created and zeroed.\n");
+        free(zero_buffer);
+        fflush(fp);
+        fseek(fp, 0, SEEK_SET);
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    if (file_size < 0) {
+        perror("Error getting disk image file size");
+        fclose(fp);
+        return false;
+    }
+
+    cpu->disk_image_fp = fp;
+    cpu->disk_image_size = file_size;
+    cpu->disk_sector_size = DISK_SECTOR_SIZE;
+
+    printf("Disk image '%s' opened. Size: %lld bytes (%lld sectors).\n",
+        DISK_IMAGE_FILENAME, cpu->disk_image_size, cpu->disk_image_size / cpu->disk_sector_size);
+
+    if (cpu->disk_image_size != DISK_IMAGE_SIZE_BYTES) {
+        fprintf(stderr, "Warning: Disk image size (%lld bytes) differs from expected (%d bytes).\n",
+            cpu->disk_image_size, DISK_IMAGE_SIZE_BYTES);
+    }
+
+
+    return true;
+}
+
 bool init_cpu(VirtualCPU* cpu) {
     if (!cpu) return false;
 
@@ -183,7 +300,7 @@ bool init_cpu(VirtualCPU* cpu) {
     cpu->ip = 0;
     cpu->flags = 0;
     cpu->registers[15] = MEMORY_SIZE;
-    cpu->halted_by_hlt = false;
+    cpu->shutdown_requested = false;
 
     cpu->audioDevice = 0;
     cpu->frequency = 440.0;
@@ -223,6 +340,15 @@ bool init_cpu(VirtualCPU* cpu) {
     cpu->palette[14] = (SDL_Color){ 255, 255, 85, 255 };
     cpu->palette[15] = (SDL_Color){ 255, 255, 255, 255 };
 
+    for (int i = 0; i < MAX_OPEN_FILES; ++i) {
+        cpu->open_files[i] = NULL;
+        cpu->file_slot_used[i] = false;
+    }
+
+    cpu->disk_image_fp = NULL;
+    cpu->disk_image_size = 0;
+    cpu->disk_sector_size = 512;
+
     srand(time(NULL));
 
     return true;
@@ -232,6 +358,20 @@ void cleanup_cpu(VirtualCPU* cpu) {
     if (cpu) {
         free(cpu->pixels);
         cpu->pixels = NULL;
+
+        for (int i = 0; i < MAX_OPEN_FILES; ++i) {
+            if (cpu->open_files[i]) {
+                fclose(cpu->open_files[i]);
+                cpu->open_files[i] = NULL;
+                cpu->file_slot_used[i] = false;
+            }
+        }
+
+        if (cpu->disk_image_fp) {
+            printf("Closing disk image '%s'.\n", DISK_IMAGE_FILENAME);
+            fclose(cpu->disk_image_fp);
+            cpu->disk_image_fp = NULL;
+        }
     }
 }
 
@@ -314,6 +454,38 @@ void cleanup_sdl(VirtualCPU* cpu) {
     }
     SDL_Quit();
 }
+
+#ifdef _WIN32
+void enable_virtual_terminal_processing_if_needed() {
+    static bool initialized = false;
+    if (initialized) return;
+
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    DWORD dwMode = 0;
+    if (!GetConsoleMode(hOut, &dwMode)) {
+        return;
+    }
+
+    if (!(dwMode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
+        dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        if (!SetConsoleMode(hOut, dwMode)) {
+            fprintf(stderr, "Warning: Failed to enable virtual terminal processing for console.\n");
+        }
+        else {
+            initialized = true;
+        }
+    }
+    else {
+        initialized = true;
+    }
+}
+#else
+void enable_virtual_terminal_processing_if_needed() {}
+#endif
 
 InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "MOV") == 0) return MOV;
@@ -1043,17 +1215,801 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         cpu->registers[0] = SDL_GetTicks();
         break;
 
+    case INT_GET_PIXEL:
+    {
+        int x = cpu->registers[0];
+        int y = cpu->registers[1];
+        int result_reg = 0;
+
+        cpu->registers[result_reg] = -1;
+
+        if (!cpu->pixels) {
+            fprintf(stderr, "Error (INT 0x24): Pixel buffer not initialized.\n");
+            break;
+        }
+
+        if (x >= 0 && x < cpu->screen_width && y >= 0 && y < cpu->screen_height) {
+            Uint32 target_pixel = cpu->pixels[y * cpu->screen_width + x];
+            for (int i = 0; i < PALETTE_SIZE; ++i) {
+                SDL_Color p_color = cpu->palette[i];
+                Uint32 palette_pixel = ((Uint32)p_color.a << 24) |
+                    ((Uint32)p_color.r << 16) |
+                    ((Uint32)p_color.g << 8) |
+                    ((Uint32)p_color.b);
+                if (target_pixel == palette_pixel) {
+                    cpu->registers[result_reg] = i;
+                    break;
+                }
+            }
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x24): Coordinates (%d, %d) out of bounds (%dx%d).\n", x, y, cpu->screen_width, cpu->screen_height);
+        }
+    }
+    break;
+
+    case INT_GET_KEY_STATE:
+    {
+        int scancode_reg = 0;
+        int result_reg = 0;
+        SDL_Scancode scancode = (SDL_Scancode)cpu->registers[scancode_reg];
+
+        SDL_PumpEvents();
+
+        const Uint8* keystate = SDL_GetKeyboardState(NULL);
+
+        if (keystate == NULL) {
+            fprintf(stderr, "Error (INT 0x25): SDL_GetKeyboardState returned NULL.\n");
+            cpu->registers[result_reg] = 0;
+            break;
+        }
+
+        if (scancode >= 0 && scancode < SDL_NUM_SCANCODES) {
+            cpu->registers[result_reg] = keystate[scancode] ? 1 : 0;
+        }
+        else {
+            cpu->registers[result_reg] = 0;
+        }
+    }
+    break;
+
+    case INT_WAIT_FOR_KEY:
+    {
+        int result_reg = 0;
+        SDL_Event event;
+        bool key_pressed = false;
+
+        while (!key_pressed) {
+            if (SDL_WaitEventTimeout(&event, 10)) {
+                if (event.type == SDL_QUIT) {
+                    fprintf(stdout, "SDL_QUIT received during INT 0x26.\n");
+                    cpu->registers[result_reg] = -1;
+                    key_pressed = true;
+                }
+                else if (event.type == SDL_KEYDOWN) {
+                    cpu->registers[result_reg] = event.key.keysym.scancode;
+                    key_pressed = true;
+                }
+            }
+        }
+    }
+    break;
+
+    case INT_GET_MOUSE_STATE:
+    {
+        int x_reg = 0;
+        int y_reg = 1;
+        int button_reg = 2;
+        int mouse_x, mouse_y;
+
+        SDL_PumpEvents();
+
+        Uint32 button_state = SDL_GetMouseState(&mouse_x, &mouse_y);
+
+        cpu->registers[x_reg] = mouse_x;
+        cpu->registers[y_reg] = mouse_y;
+
+        int button_mask = 0;
+        if (button_state & SDL_BUTTON(SDL_BUTTON_LEFT))   button_mask |= 1;
+        if (button_state & SDL_BUTTON(SDL_BUTTON_MIDDLE)) button_mask |= 2;
+        if (button_state & SDL_BUTTON(SDL_BUTTON_RIGHT))  button_mask |= 4;
+
+        cpu->registers[button_reg] = button_mask;
+    }
+    break;
+
+    case INT_GET_MEMORY_SIZE:
+    {
+        cpu->registers[0] = MEMORY_SIZE;
+    }
+    break;
+
+    case INT_FILE_OPEN:
+    {
+        int name_addr_reg = 0;
+        int mode_addr_reg = 1;
+        int result_reg = 0;
+
+        int name_addr = cpu->registers[name_addr_reg];
+        int mode_addr = cpu->registers[mode_addr_reg];
+
+        cpu->registers[result_reg] = -1;
+
+        if (!isValidMem(name_addr) || !isValidMem(mode_addr)) {
+            fprintf(stderr, "Error (INT 0x29): Invalid memory address for filename (0x%X) or mode (0x%X).\n", name_addr, mode_addr);
+            break;
+        }
+
+        int handle = -1;
+        for (int i = 0; i < MAX_OPEN_FILES; ++i) {
+            if (!cpu->file_slot_used[i]) {
+                handle = i;
+                break;
+            }
+        }
+
+        if (handle == -1) {
+            fprintf(stderr, "Error (INT 0x29): Maximum open files (%d) reached.\n", MAX_OPEN_FILES);
+            break;
+        }
+
+        char filename_buf[FILENAME_MAX];
+        char mode_buf[8];
+        int fn_idx = 0;
+        int md_idx = 0;
+
+        while (isValidMem(name_addr + fn_idx) && fn_idx < FILENAME_MAX - 1) {
+            char c = (char)cpu->memory[name_addr + fn_idx];
+            filename_buf[fn_idx] = c;
+            if (c == 0) break;
+            fn_idx++;
+        }
+        filename_buf[fn_idx] = 0;
+
+        while (isValidMem(mode_addr + md_idx) && md_idx < sizeof(mode_buf) - 1) {
+            char c = (char)cpu->memory[mode_addr + md_idx];
+            mode_buf[md_idx] = c;
+            if (c == 0) break;
+            md_idx++;
+        }
+        mode_buf[md_idx] = 0;
+
+
+        if (fn_idx == FILENAME_MAX - 1 && filename_buf[fn_idx] != 0) {
+            fprintf(stderr, "Error (INT 0x29): Filename string too long or not null-terminated.\n");
+            break;
+        }
+        if (md_idx == sizeof(mode_buf) - 1 && mode_buf[md_idx] != 0) {
+            fprintf(stderr, "Error (INT 0x29): Mode string too long or not null-terminated.\n");
+            break;
+        }
+
+
+        FILE* fp = fopen(filename_buf, mode_buf);
+        if (fp) {
+            cpu->open_files[handle] = fp;
+            cpu->file_slot_used[handle] = true;
+            cpu->registers[result_reg] = handle;
+        }
+        else {
+            fprintf(stderr, "Error (INT 0x29): Failed to open file '%s' with mode '%s'.\n", filename_buf, mode_buf);
+            perror(" fopen");
+        }
+    }
+    break;
+
+    case INT_FILE_CLOSE:
+    {
+        int handle_reg = 0;
+        int result_reg = 0;
+        int handle = cpu->registers[handle_reg];
+
+        cpu->registers[result_reg] = -1;
+
+        if (handle >= 0 && handle < MAX_OPEN_FILES && cpu->file_slot_used[handle] && cpu->open_files[handle]) {
+            int close_result = fclose(cpu->open_files[handle]);
+            cpu->open_files[handle] = NULL;
+            cpu->file_slot_used[handle] = false;
+            if (close_result == 0) {
+                cpu->registers[result_reg] = 0;
+            }
+            else {
+                fprintf(stderr, "Error (INT 0x2A): fclose failed for handle %d.\n", handle);
+                perror(" fclose");
+            }
+        }
+        else {
+            fprintf(stderr, "Error (INT 0x2A): Invalid or already closed file handle %d.\n", handle);
+        }
+    }
+    break;
+
+    case INT_FILE_READ:
+    {
+        int handle_reg = 0;
+        int mem_addr_reg = 1;
+        int bytes_reg = 2;
+        int result_reg = 0;
+
+        int handle = cpu->registers[handle_reg];
+        int mem_addr = cpu->registers[mem_addr_reg];
+        int bytes_to_read = cpu->registers[bytes_reg];
+
+        cpu->registers[result_reg] = -1;
+
+        if (handle < 0 || handle >= MAX_OPEN_FILES || !cpu->file_slot_used[handle] || !cpu->open_files[handle]) {
+            fprintf(stderr, "Error (INT 0x2B): Invalid file handle %d.\n", handle);
+            break;
+        }
+        if (bytes_to_read <= 0) {
+            cpu->registers[result_reg] = 0;
+            break;
+        }
+        if (!isValidMem(mem_addr) || !isValidMem(mem_addr + bytes_to_read - 1)) {
+            fprintf(stderr, "Error (INT 0x2B): Invalid memory range 0x%X - 0x%X for reading %d bytes.\n", mem_addr, mem_addr + bytes_to_read - 1, bytes_to_read);
+            break;
+        }
+
+        size_t buf_size = (size_t)bytes_to_read;
+        unsigned char* temp_buf = malloc(buf_size);
+        if (!temp_buf) {
+            fprintf(stderr, "Error (INT 0x2B): Failed to allocate temporary read buffer (%zu bytes).\n", buf_size);
+            break;
+        }
+
+        size_t bytes_read = fread(temp_buf, 1, buf_size, cpu->open_files[handle]);
+
+        if (bytes_read > 0) {
+            for (size_t i = 0; i < bytes_read; ++i) {
+                if (isValidMem(mem_addr + i)) {
+                    cpu->memory[mem_addr + i] = temp_buf[i];
+                }
+                else {
+                    fprintf(stderr, "FATAL Error (INT 0x2B): Memory bounds exceeded during copy after fread! This shouldn't happen.\n");
+                    bytes_read = i;
+                    break;
+                }
+            }
+        }
+        else {
+            if (ferror(cpu->open_files[handle])) {
+                fprintf(stderr, "Error (INT 0x2B): fread failed for handle %d.\n", handle);
+                perror(" fread");
+                bytes_read = (size_t)-1;
+            }
+            else if (feof(cpu->open_files[handle])) {
+                // EOF handled by bytes_read == 0
+            }
+        }
+
+        free(temp_buf);
+        cpu->registers[result_reg] = (int)bytes_read;
+
+    }
+    break;
+
+    case INT_FILE_WRITE:
+    {
+        int handle_reg = 0;
+        int mem_addr_reg = 1;
+        int bytes_reg = 2;
+        int result_reg = 0;
+
+        int handle = cpu->registers[handle_reg];
+        int mem_addr = cpu->registers[mem_addr_reg];
+        int bytes_to_write = cpu->registers[bytes_reg];
+
+        cpu->registers[result_reg] = -1;
+
+        if (handle < 0 || handle >= MAX_OPEN_FILES || !cpu->file_slot_used[handle] || !cpu->open_files[handle]) {
+            fprintf(stderr, "Error (INT 0x2C): Invalid file handle %d.\n", handle);
+            break;
+        }
+        if (bytes_to_write < 0) {
+            fprintf(stderr, "Error (INT 0x2C): Attempted to write negative bytes (%d).\n", bytes_to_write);
+            break;
+        }
+        if (bytes_to_write > 0 && (!isValidMem(mem_addr) || !isValidMem(mem_addr + bytes_to_write - 1))) {
+            fprintf(stderr, "Error (INT 0x2C): Invalid memory range 0x%X - 0x%X for writing %d bytes.\n", mem_addr, mem_addr + bytes_to_write - 1, bytes_to_write);
+            break;
+        }
+        if (bytes_to_write == 0) {
+            cpu->registers[result_reg] = 0;
+            break;
+        }
+
+
+        size_t buf_size = (size_t)bytes_to_write;
+        unsigned char* temp_buf = malloc(buf_size);
+        if (!temp_buf) {
+            fprintf(stderr, "Error (INT 0x2C): Failed to allocate temporary write buffer (%zu bytes).\n", buf_size);
+            break;
+        }
+
+        for (size_t i = 0; i < buf_size; ++i) {
+            if (isValidMem(mem_addr + i)) {
+                temp_buf[i] = (unsigned char)(cpu->memory[mem_addr + i] & 0xFF);
+            }
+            else {
+                fprintf(stderr, "FATAL Error (INT 0x2C): Memory bounds exceeded during copy before fwrite! This shouldn't happen.\n");
+                free(temp_buf);
+                goto file_write_end;
+            }
+        }
+
+        size_t bytes_written = fwrite(temp_buf, 1, buf_size, cpu->open_files[handle]);
+
+        if (bytes_written != buf_size) {
+            fprintf(stderr, "Error (INT 0x2C): fwrite failed or wrote partial data for handle %d (wrote %zu of %zu).\n", handle, bytes_written, buf_size);
+            perror(" fwrite");
+        }
+
+        free(temp_buf);
+        cpu->registers[result_reg] = (int)bytes_written;
+
+    file_write_end:;
+    }
+    break;
+
+    case INT_FILE_SEEK:
+    {
+        int handle_reg = 0;
+        int offset_reg = 1;
+        int origin_reg = 2;
+        int result_reg = 0;
+
+        int handle = cpu->registers[handle_reg];
+        long offset = (long)cpu->registers[offset_reg];
+        int origin_code = cpu->registers[origin_reg];
+
+        cpu->registers[result_reg] = -1;
+
+        if (handle < 0 || handle >= MAX_OPEN_FILES || !cpu->file_slot_used[handle] || !cpu->open_files[handle]) {
+            fprintf(stderr, "Error (INT 0x2D): Invalid file handle %d.\n", handle);
+            break;
+        }
+
+        int seek_origin;
+        switch (origin_code) {
+        case 0: seek_origin = SEEK_SET; break;
+        case 1: seek_origin = SEEK_CUR; break;
+        case 2: seek_origin = SEEK_END; break;
+        default:
+            fprintf(stderr, "Error (INT 0x2D): Invalid origin code %d (must be 0, 1, or 2).\n", origin_code);
+            break;
+        }
+
+        int seek_result = fseek(cpu->open_files[handle], offset, seek_origin);
+
+        if (seek_result == 0) {
+            cpu->registers[result_reg] = 0;
+        }
+        else {
+            fprintf(stderr, "Error (INT 0x2D): fseek failed for handle %d.\n", handle);
+            perror(" fseek");
+        }
+    }
+    break;
+
+    case INT_FILE_TELL:
+    {
+        int handle_reg = 0;
+        int result_reg = 0;
+        int handle = cpu->registers[handle_reg];
+
+        cpu->registers[result_reg] = -1;
+
+        if (handle < 0 || handle >= MAX_OPEN_FILES || !cpu->file_slot_used[handle] || !cpu->open_files[handle]) {
+            fprintf(stderr, "Error (INT 0x2E): Invalid file handle %d.\n", handle);
+            break;
+        }
+
+        long current_pos = ftell(cpu->open_files[handle]);
+
+        if (current_pos == -1L) {
+            fprintf(stderr, "Error (INT 0x2E): ftell failed for handle %d.\n", handle);
+            perror(" ftell");
+        }
+        else {
+            if (current_pos > INT_MAX || current_pos < INT_MIN) {
+                fprintf(stderr, "Warning (INT 0x2E): File position %ld exceeds integer limits for handle %d.\n", current_pos, handle);
+            }
+            else {
+                cpu->registers[result_reg] = (int)current_pos;
+            }
+        }
+    }
+    break;
+    case INT_SET_CONSOLE_COLOR: // 0x2F
+    {
+        int fg_color = cpu->registers[0];
+        int bg_color = cpu->registers[1];
+
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hConsole != INVALID_HANDLE_VALUE) {
+            fg_color &= 0x0F;
+            bg_color &= 0x0F;
+            WORD attribute = (WORD)((bg_color << 4) | fg_color);
+            SetConsoleTextAttribute(hConsole, attribute);
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x2F): Could not get console handle (Win32).\n");
+        }
+#else // POSIX/ANSI
+        int ansi_fg, ansi_bg;
+        if (fg_color >= 0 && fg_color <= 7) ansi_fg = 30 + fg_color;
+        else if (fg_color >= 8 && fg_color <= 15) ansi_fg = 90 + (fg_color - 8);
+        else ansi_fg = 39;
+
+        if (bg_color >= 0 && bg_color <= 7) ansi_bg = 40 + bg_color;
+        else if (bg_color >= 8 && bg_color <= 15) ansi_bg = 100 + (bg_color - 8);
+        else ansi_bg = 49; 
+
+        printf("\033[%d;%dm", ansi_fg, ansi_bg);
+        fflush(stdout);
+#endif
+    }
+    break;
+
+    case INT_RESET_CONSOLE_COLOR:
+    {
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+        WORD saved_attributes = 7;
+        if (GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
+            saved_attributes = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+        }
+        if (hConsole != INVALID_HANDLE_VALUE) {
+            SetConsoleTextAttribute(hConsole, saved_attributes);
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x30): Could not get console handle (Win32).\n");
+        }
+#else // POSIX/ANSI
+        printf("\033[0m");
+        fflush(stdout);
+#endif
+    }
+    break;
+
+    case INT_GOTOXY:
+    {
+        int col = cpu->registers[0];
+        int row = cpu->registers[1];
+
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hConsole != INVALID_HANDLE_VALUE) {
+            COORD coord = { (SHORT)col, (SHORT)row };
+            if (coord.X < 0) coord.X = 0;
+            if (coord.Y < 0) coord.Y = 0;
+            SetConsoleCursorPosition(hConsole, coord);
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x31): Could not get console handle (Win32).\n");
+        }
+#else // POSIX/ANSI
+        printf("\033[%d;%dH", row + 1, col + 1);
+        fflush(stdout);
+#endif
+    }
+    break;
+
+    case INT_GETXY:
+    {
+        int col_reg = 0;
+        int row_reg = 1;
+
+        cpu->registers[col_reg] = -1;
+        cpu->registers[row_reg] = -1;
+
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+        if (hConsole != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
+            cpu->registers[col_reg] = consoleInfo.dwCursorPosition.X;
+            cpu->registers[row_reg] = consoleInfo.dwCursorPosition.Y;
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x32): Failed to get console buffer info (Win32).\n");
+        }
+#else // POSIX/ANSI
+        fprintf(stderr, "Warning (INT 0x32): INT_GETXY is not reliably implemented on non-Windows platforms.\n");
+#endif
+    }
+    break;
+
+    case INT_GET_CONSOLE_SIZE:
+    {
+        int width_reg = 0;
+        int height_reg = 1;
+
+        cpu->registers[width_reg] = -1;
+        cpu->registers[height_reg] = -1;
+
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+        if (hConsole != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
+            cpu->registers[width_reg] = consoleInfo.srWindow.Right - consoleInfo.srWindow.Left + 1;
+            cpu->registers[height_reg] = consoleInfo.srWindow.Bottom - consoleInfo.srWindow.Top + 1;
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x33): Failed to get console buffer info (Win32).\n");
+        }
+#else // POSIX
+        struct winsize ws;
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) {
+            cpu->registers[width_reg] = ws.ws_col;
+            cpu->registers[height_reg] = ws.ws_row;
+        }
+        else {
+            perror("ioctl TIOCGWINSZ");
+            fprintf(stderr, "Warning (INT 0x33): Failed to get console size (ioctl).\n");
+        }
+#endif
+    }
+    break;
+
+    case INT_SET_CONSOLE_TITLE:
+    {
+        int title_addr_reg = 0;
+        int title_addr = cpu->registers[title_addr_reg];
+
+        if (!isValidMem(title_addr)) {
+            fprintf(stderr, "Error (INT 0x34): Invalid memory address for title string (0x%X).\n", title_addr);
+            break;
+        }
+
+        char title_buf[256];
+        int idx = 0;
+        while (isValidMem(title_addr + idx) && idx < sizeof(title_buf) - 1) {
+            char c = (char)cpu->memory[title_addr + idx];
+            title_buf[idx] = c;
+            if (c == 0) break;
+            idx++;
+        }
+        title_buf[idx] = 0;
+
+        if (idx == sizeof(title_buf) - 1 && title_buf[idx] != 0) {
+            fprintf(stderr, "Warning (INT 0x34): Title string too long or not null-terminated.\n");
+        }
+
+#ifdef _WIN32
+        if (!SetConsoleTitle(title_buf)) {
+            fprintf(stderr, "Warning (INT 0x34): SetConsoleTitle failed (Win32).\n");
+        }
+#else // POSIX/ANSI
+        printf("\033]0;%s\007", title_buf);
+        fflush(stdout);
+#endif
+    }
+    break;
+
+    case INT_SYSTEM_SHUTDOWN:
+        cpu->shutdown_requested = true;
+        exit(0);
+        break;
+
+    case INT_GET_DATETIME:
+    {
+        time_t timer;
+        struct tm* tm_info;
+        time(&timer);
+        tm_info = localtime(&timer);
+
+        cpu->registers[0] = tm_info->tm_year + 1900;
+        cpu->registers[1] = tm_info->tm_mon + 1;
+        cpu->registers[2] = tm_info->tm_mday;
+        cpu->registers[3] = tm_info->tm_hour;
+        cpu->registers[4] = tm_info->tm_min;
+        cpu->registers[5] = tm_info->tm_sec;
+    }
+    break;
+
+    case INT_DISK_READ:
+    {
+        int sector_num_reg = 0;
+        int mem_addr_reg = 1;
+        int num_sectors_reg = 2;
+        int status_reg = 0;
+
+        int sector_num = cpu->registers[sector_num_reg];
+        int mem_addr = cpu->registers[mem_addr_reg];
+        int num_sectors = cpu->registers[num_sectors_reg];
+        int status = 0;
+
+        if (!cpu->disk_image_fp) {
+            fprintf(stderr, "Error (INT 0x37): Disk image not open.\n");
+            status = 3;
+            goto disk_read_end;
+        }
+        if (num_sectors <= 0) {
+            status = 0;
+            goto disk_read_end;
+        }
+
+        long long max_sector = (cpu->disk_image_size / cpu->disk_sector_size) - 1;
+        if (sector_num < 0 || sector_num > max_sector || (sector_num + num_sectors - 1) > max_sector) {
+            fprintf(stderr, "Error (INT 0x37): Invalid sector range %d to %d (max %lld).\n",
+                sector_num, sector_num + num_sectors - 1, max_sector);
+            status = 1;
+            goto disk_read_end;
+        }
+
+        long long total_bytes = (long long)num_sectors * cpu->disk_sector_size;
+        if (!isValidMem(mem_addr) || !isValidMem(mem_addr + total_bytes - 1)) {
+            fprintf(stderr, "Error (INT 0x37): Invalid memory range 0x%X to 0x%X for %lld bytes.\n",
+                mem_addr, mem_addr + (int)total_bytes - 1, total_bytes);
+            status = 2;
+            goto disk_read_end;
+        }
+
+        long long seek_pos = (long long)sector_num * cpu->disk_sector_size;
+        if (fseek(cpu->disk_image_fp, seek_pos, SEEK_SET) != 0) {
+            perror("Error (INT 0x37): fseek failed");
+            status = 3;
+            goto disk_read_end;
+        }
+
+        char* sector_buffer = malloc(total_bytes);
+        if (!sector_buffer) {
+            fprintf(stderr, "Error (INT 0x37): Failed to allocate sector buffer (%lld bytes).\n", total_bytes);
+            status = 3;
+            goto disk_read_end;
+        }
+
+        size_t bytes_read = fread(sector_buffer, 1, total_bytes, cpu->disk_image_fp);
+        if (bytes_read != (size_t)total_bytes) {
+            if (ferror(cpu->disk_image_fp)) {
+                perror("Error (INT 0x37): fread failed");
+            }
+            else {
+                fprintf(stderr, "Error (INT 0x37): fread returned short count (%zu != %lld).\n", bytes_read, total_bytes);
+            }
+            free(sector_buffer);
+            status = 3;
+            goto disk_read_end;
+        }
+
+        for (long long i = 0; i < total_bytes; ++i) {
+            if (isValidMem(mem_addr + i)) {
+                cpu->memory[mem_addr + i] = (int)(unsigned char)sector_buffer[i];
+            }
+            else {
+                fprintf(stderr, "FATAL Error (INT 0x37): Memory bounds exceeded during copy after fread!.\n");
+                status = 2;
+                break;
+            }
+        }
+        free(sector_buffer);
+
+    disk_read_end:
+        cpu->registers[status_reg] = status;
+    }
+    break;
+
+    case INT_DISK_WRITE:
+    {
+        int sector_num_reg = 0;
+        int mem_addr_reg = 1;
+        int num_sectors_reg = 2;
+        int status_reg = 0;
+
+        int sector_num = cpu->registers[sector_num_reg];
+        int mem_addr = cpu->registers[mem_addr_reg];
+        int num_sectors = cpu->registers[num_sectors_reg];
+        int status = 0;
+
+        if (!cpu->disk_image_fp) {
+            fprintf(stderr, "Error (INT 0x38): Disk image not open.\n");
+            status = 3;
+            goto disk_write_end;
+        }
+        if (num_sectors <= 0) {
+            status = 0;
+            goto disk_write_end;
+        }
+
+        long long max_sector = (cpu->disk_image_size / cpu->disk_sector_size) - 1;
+        if (sector_num < 0 || sector_num > max_sector || (sector_num + num_sectors - 1) > max_sector) {
+            fprintf(stderr, "Error (INT 0x38): Invalid sector range %d to %d (max %lld).\n",
+                sector_num, sector_num + num_sectors - 1, max_sector);
+            status = 1;
+            goto disk_write_end;
+        }
+
+        long long total_bytes = (long long)num_sectors * cpu->disk_sector_size;
+        if (!isValidMem(mem_addr) || !isValidMem(mem_addr + total_bytes - 1)) {
+            fprintf(stderr, "Error (INT 0x38): Invalid memory range 0x%X to 0x%X for %lld bytes.\n",
+                mem_addr, mem_addr + (int)total_bytes - 1, total_bytes);
+            status = 2;
+            goto disk_write_end;
+        }
+
+        char* sector_buffer = malloc(total_bytes);
+        if (!sector_buffer) {
+            fprintf(stderr, "Error (INT 0x38): Failed to allocate sector buffer (%lld bytes).\n", total_bytes);
+            status = 3;
+            goto disk_write_end;
+        }
+
+        for (long long i = 0; i < total_bytes; ++i) {
+            if (isValidMem(mem_addr + i)) {
+                sector_buffer[i] = (char)(cpu->memory[mem_addr + i] & 0xFF);
+            }
+            else {
+                fprintf(stderr, "FATAL Error (INT 0x38): Memory bounds exceeded during copy before fwrite!.\n");
+                free(sector_buffer);
+                status = 2;
+                goto disk_write_end;
+            }
+        }
+
+        long long seek_pos = (long long)sector_num * cpu->disk_sector_size;
+        if (fseek(cpu->disk_image_fp, seek_pos, SEEK_SET) != 0) {
+            perror("Error (INT 0x38): fseek failed");
+            free(sector_buffer);
+            status = 3;
+            goto disk_write_end;
+        }
+
+        size_t bytes_written = fwrite(sector_buffer, 1, total_bytes, cpu->disk_image_fp);
+        free(sector_buffer);
+
+        if (bytes_written != (size_t)total_bytes) {
+            if (ferror(cpu->disk_image_fp)) {
+                perror("Error (INT 0x38): fwrite failed");
+            }
+            else {
+                fprintf(stderr, "Error (INT 0x38): fwrite wrote short count (%zu != %lld).\n", bytes_written, total_bytes);
+            }
+            status = 3;
+            fflush(cpu->disk_image_fp);
+            goto disk_write_end;
+        }
+
+        if (fflush(cpu->disk_image_fp) != 0) {
+            perror("Error (INT 0x38): fflush failed after write");
+            status = 3;
+            goto disk_write_end;
+        }
+
+    disk_write_end:
+        cpu->registers[status_reg] = status;
+    }
+    break;
+
+    case INT_DISK_INFO:
+    {
+        int total_sectors_reg = 0;
+        int sector_size_reg = 1;
+
+        if (!cpu->disk_image_fp) {
+            fprintf(stderr, "Error (INT 0x39): Disk image not open.\n");
+            cpu->registers[total_sectors_reg] = -1;
+            cpu->registers[sector_size_reg] = 0;
+        }
+        else {
+            long long total_sectors = cpu->disk_image_size / cpu->disk_sector_size;
+            if (total_sectors > INT_MAX) {
+                fprintf(stderr, "Warning (INT 0x39): Total sector count (%lld) exceeds INT_MAX.\n", total_sectors);
+                cpu->registers[total_sectors_reg] = INT_MAX;
+            }
+            else {
+                cpu->registers[total_sectors_reg] = (int)total_sectors;
+            }
+            cpu->registers[sector_size_reg] = cpu->disk_sector_size;
+        }
+    }
+    break;
+
     default:
         fprintf(stderr, "Error: Unknown interrupt code 0x%X at line %d\n", interrupt_id, cpu->ip + 1);
         break;
     }
-}
-
-bool isValidReg(int reg) {
-    return reg >= 0 && reg < NUM_REGISTERS;
-}
-bool isValidMem(int addr) {
-    return addr >= 0 && addr < MEMORY_SIZE;
 }
 
 void execute(VirtualCPU* cpu, char* program[], int program_size) {
@@ -1578,10 +2534,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
         }
     }
 
-    if (cpu->halted_by_hlt) {
-        printf("Execution halted by HLT instruction.\n");
-    }
-    else if (cpu->ip >= program_size) {
+    if (cpu->ip >= program_size) {
         printf("Program finished by running past the last instruction.\n");
     }
     else if (!running) {
@@ -1730,10 +2683,8 @@ void nop(VirtualCPU* cpu) {
 }
 
 void hlt(VirtualCPU* cpu, bool* running_flag) {
-    (void)cpu;
-    printf("HLT encountered at line %d.\n", cpu->ip + 1);
-    cpu->halted_by_hlt = true;
-    *running_flag = false;
+    for (;;){
+    }
 }
 
 void not_op(VirtualCPU* cpu, int reg1) {
@@ -2353,6 +3304,9 @@ int main(int argc, char* argv[]) {
     cpu_initialized = true;
     printf("CPU Initialized.\n");
 
+    if (!initialize_disk_image(cpu_ptr)) {
+        fprintf(stderr, "Failed to initialize disk image. Continuing without disk support...\n");
+    }
 
     printf("Initializing SDL...\n");
     if (!init_sdl(cpu_ptr)) {
@@ -2364,6 +3318,10 @@ int main(int argc, char* argv[]) {
     sdl_initialized = true;
     printf("SDL Initialized.\n");
 
+#ifdef _WIN32
+    enable_virtual_terminal_processing_if_needed();
+    printf("Virtual terminal processing checked/enabled (Windows).\n");
+#endif
 
     printf("Loading program '%s'...\n");
     program_size = loadProgram(filename, program, MAX_PROGRAM_SIZE);

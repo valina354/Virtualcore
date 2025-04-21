@@ -3477,7 +3477,7 @@ int main(int argc, char* argv[]) {
     printf("Program memory freed.\n");
 
     if (sdl_initialized) {
-        cleanup_sdl(    cpu_ptr);
+        cleanup_sdl(cpu_ptr);
         printf("SDL resources cleaned up.\n");
     }
 

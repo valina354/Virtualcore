@@ -30,7 +30,7 @@ typedef enum {
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
-    STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID,
+    STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
     INVALID_INST
 } InstructionType;
 
@@ -189,6 +189,9 @@ void strcpy_op(VirtualCPU* cpu, int reg_dest_addr, int reg_src_addr);
 void memcpy_op(VirtualCPU* cpu, int dest_addr_reg, int src_addr_reg, int len_reg);
 void memset_op(VirtualCPU* cpu, int dest_addr_reg, int val_reg, int len_reg);
 void cpuid_op(VirtualCPU* cpu, int dest_reg);
+void bswap_op(VirtualCPU* cpu, int reg);
+void sar_op(VirtualCPU* cpu, int reg, int count);
+void rvd_op(VirtualCPU* cpu, int reg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -547,6 +550,9 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "MEMCPY") == 0) return MEMCPY;
     if (strcmp(instruction, "MEMSET") == 0) return MEMSET;
     if (strcmp(instruction, "CPUID") == 0) return CPUID;
+    if (strcmp(instruction, "BSWAP") == 0) return BSWAP;
+    if (strcmp(instruction, "SAR") == 0) return SAR;
+    if (strcmp(instruction, "RVD") == 0) return RVD;
     return INVALID_INST;
 }
 
@@ -2037,7 +2043,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             else { fprintf(stderr, "Error: Invalid RND format at line %d\n", cpu->ip + 1); }
             break;
         case STRMOV: {
-                // Manually parse STRMOV arguments for robustness
                 char* args_start = strchr(current_instruction_line, ' ');
                 if (!args_start) {
                     fprintf(stderr, "Error: Invalid STRMOV format (no arguments) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
@@ -2289,6 +2294,55 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             }
             else {
                 fprintf(stderr, "Error: Invalid CPUID format at line %d (Expected: CPUID Rdest)\n", cpu->ip + 1);
+            }
+            break;
+        case BSWAP:
+            if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
+                bswap_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid BSWAP format at line %d (Expected: BSWAP Rx)\n", cpu->ip + 1);
+            }
+            break;
+        case SAR: {
+            int dest_reg = -1;
+            int source_reg = -1;
+
+            if (sscanf(current_instruction_line, "%*s R%d, R%d", &dest_reg, &source_reg) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error SAR: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    break;
+                }
+                if (!isValidReg(source_reg)) {
+                    fprintf(stderr, "Error SAR: Invalid count register R%d at line %d\n", source_reg, cpu->ip + 1);
+                    break;
+                }
+
+                int count = cpu->registers[source_reg];
+
+                if (count < 0) {
+                    fprintf(stderr, "Warning SAR: Negative shift count %d in R%d at line %d. Treating as 0.\n", count, source_reg, cpu->ip + 1);
+                    count = 0;
+                }
+                if (count >= 32) {
+                    count = 31;
+                    fprintf(stderr, "Warning SAR: Shift count %d (from R%d) >= 32 at line %d. Clamping to 31.\n", cpu->registers[source_reg], source_reg, cpu->ip + 1);
+                }
+
+                sar_op(cpu, dest_reg, count);
+
+            }
+            else {
+                fprintf(stderr, "Error: Invalid SAR format structure at line %d: '%s'. Expected: SAR Rdest, Rcount\n", cpu->ip + 1, current_instruction_line);
+            }
+            break;
+        }
+        case RVD:
+            if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
+                rvd_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid RVD format at line %d (Expected: RVD Rx)\n", cpu->ip + 1); // Changed from REVDEC
             }
             break;
 
@@ -3089,6 +3143,75 @@ void cpuid_op(VirtualCPU* cpu, int dest_reg) {
         return;
     }
     cpu->registers[dest_reg] = CPU_VERSION;
+}
+
+void bswap_op(VirtualCPU* cpu, int reg) {
+    if (!isValidReg(reg)) {
+        fprintf(stderr, "Error BSWAP: Invalid register R%d at line %d\n", reg, cpu->ip + 1);
+        return;
+    }
+    unsigned int val = (unsigned int)cpu->registers[reg];
+    unsigned int byte1 = (val >> 24) & 0xff;
+    unsigned int byte2 = (val >> 16) & 0xff;
+    unsigned int byte3 = (val >> 8) & 0xff;
+    unsigned int byte4 = val & 0xff;
+    unsigned int swapped_val = (byte4 << 24) | (byte3 << 16) | (byte2 << 8) | byte1;
+    cpu->registers[reg] = (int)swapped_val;
+}
+
+void sar_op(VirtualCPU* cpu, int reg, int count) {
+    if (!isValidReg(reg)) {
+        fprintf(stderr, "Error SAR: Invalid register R%d at line %d\n", reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->registers[reg] >>= count;
+}
+
+void rvd_op(VirtualCPU* cpu, int reg) {
+    if (!isValidReg(reg)) {
+        fprintf(stderr, "Error RVD: Invalid register R%d at line %d\n", reg, cpu->ip + 1);
+        return;
+    }
+
+    int original_value = cpu->registers[reg];
+    int reversed_value = 0;
+    int sign = 1;
+    long long temp_original;
+
+    if (original_value == 0) {
+        return;
+    }
+
+    if (original_value < 0) {
+        sign = -1;
+        if (original_value == INT_MIN) {
+            fprintf(stderr, "Warning RVD: Cannot reverse INT_MIN due to overflow potential. Value unchanged.\n");
+            return;
+        }
+        temp_original = -(long long)original_value;
+    }
+    else {
+        temp_original = original_value;
+    }
+
+    long long temp_reversed = 0;
+
+    while (temp_original > 0) {
+        int digit = temp_original % 10;
+        if (temp_reversed > (LLONG_MAX - digit) / 10) {
+            fprintf(stderr, "Warning RVD: Overflow detected during decimal reversal of %d at line %d. Result may be incorrect.\n", original_value, cpu->ip + 1);
+        }
+        temp_reversed = temp_reversed * 10 + digit;
+        temp_original /= 10;
+    }
+
+    if (sign * temp_reversed > INT_MAX || sign * temp_reversed < INT_MIN) {
+        fprintf(stderr, "Warning RVD: Reversed value %lld * %d overflows standard integer for %d at line %d. Result may be incorrect.\n", temp_reversed, sign, original_value, cpu->ip + 1);
+    }
+
+    reversed_value = (int)(sign * temp_reversed);
+    cpu->registers[reg] = reversed_value;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

@@ -2081,6 +2081,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
             current_x += 8;
             current_addr++;
+            if (cpu->screen_on == 1) {
+                updateScreen(cpu);
+            }
         }
     }
     break;
@@ -2133,6 +2136,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
                 }
             }
         }
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
     }
     break;
 
@@ -2161,8 +2167,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
 void execute(VirtualCPU* cpu, char* program[], int program_size) {
     bool running = true;
-    Uint32 last_frame_time = SDL_GetTicks();
-    const Uint32 FRAME_DURATION_MS = 1000 / 60;
     while (running && cpu->ip < program_size && !cpu->shutdown_requested) {
         char* current_instruction_line = program[cpu->ip];
         char op_str[10];
@@ -2819,11 +2823,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
 
         if (running && cpu->ip == current_ip) {
             cpu->ip++;
-        }
-        Uint32 current_time = SDL_GetTicks();
-        if (cpu->screen_on && (current_time - last_frame_time >= FRAME_DURATION_MS)) {
-            updateScreen(cpu);
-            last_frame_time = current_time;
         }
     }
 

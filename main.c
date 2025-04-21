@@ -27,7 +27,7 @@
 typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
-    ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE,
+    ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     INVALID_INST
 } InstructionType;
 
@@ -138,6 +138,7 @@ void abs_op(VirtualCPU* cpu, int reg1);
 void loop_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void load_op(VirtualCPU* cpu, int dest_reg, int addr_src_reg);
 void store_op(VirtualCPU* cpu, int val_src_reg, int addr_dest_reg);
+void test_op(VirtualCPU* cpu, int reg1, int reg2);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -339,6 +340,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "LOOP") == 0) return LOOP;
     if (strcmp(instruction, "LOAD") == 0) return LOAD;
     if (strcmp(instruction, "STORE") == 0) return STORE;
+    if (strcmp(instruction, "TEST") == 0) return TEST;
     return INVALID_INST;
 }
 
@@ -1300,6 +1302,14 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
                 fprintf(stderr, "Error: Invalid STORE format at line %d (Expected: STORE Rval_src, Raddr_dest)\n", cpu->ip + 1);
             }
             break;
+        case TEST:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
+                test_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid TEST format at line %d (Expected: TEST R1, R2)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -1700,6 +1710,28 @@ void store_op(VirtualCPU* cpu, int val_src_reg, int addr_dest_reg) {
 
     cpu->memory[address] = cpu->registers[val_src_reg];
 }
+
+void test_op(VirtualCPU* cpu, int reg1, int reg2) {
+    if (!isValidReg(reg1)) {
+        fprintf(stderr, "Error TEST: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
+        return;
+    }
+    if (!isValidReg(reg2)) {
+        fprintf(stderr, "Error TEST: Invalid register R%d at line %d\n", reg2, cpu->ip + 1);
+        return;
+    }
+
+    int val1 = cpu->registers[reg1];
+    int val2 = cpu->registers[reg2];
+
+    int result = val1 & val2;
+
+    cpu->flags &= ~FLAG_ZERO;
+    if (result == 0) {
+        cpu->flags |= FLAG_ZERO;
+    }
+}
+
 
 void audioCallback(void* userdata, Uint8* stream, int len) {
     VirtualCPU* cpu = (VirtualCPU*)userdata;

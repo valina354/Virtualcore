@@ -88,6 +88,7 @@ typedef struct {
 #define INT_DISK_READ       0x37 // Read sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_WRITE      0x38 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_INFO       0x39 // Get disk info -> R0=TotalSectors, R1=SectorSize
+#define INT_BREAKPOINT      0x3A // Trigger host debugger breakpoint (if attached and set)
 
 #define MAX_OPEN_FILES 16
 
@@ -616,6 +617,25 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                 fprintf(stderr, "Warning: Invalid #define format: '%s'. Skipping.\n", start);
             }
             continue;
+        }
+
+        if (strncmp(start, "#warning", 8) == 0 && (isspace((unsigned char)start[8]) || start[8] == '\0')) {
+            char* warning_msg = start + 8;
+            while (isspace((unsigned char)*warning_msg)) warning_msg++;
+            fprintf(stderr, "Warning: %s\n", warning_msg);
+            continue;
+        }
+
+        if (strncmp(start, "#error", 6) == 0 && (isspace((unsigned char)start[6]) || start[6] == '\0')) {
+            char* error_msg = start + 6;
+            while (isspace((unsigned char)*error_msg)) error_msg++;
+            fprintf(stderr, "Error: %s\n", error_msg);
+            for (int i = 0; i < temp_line_count; ++i) {
+                if (temp_program[i]) free(temp_program[i]);
+            }
+            free(temp_program);
+            fclose(file);
+            return -4;
         }
 
         if (strlen(start) == 0) {
@@ -2015,6 +2035,13 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         }
     }
     break;
+    case INT_BREAKPOINT:
+#ifdef _MSC_VER
+        __debugbreak();
+#else
+        __builtin_trap();
+#endif
+        break;
 
     default:
         fprintf(stderr, "Error: Unknown interrupt code 0x%X at line %d\n", interrupt_id, cpu->ip + 1);

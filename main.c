@@ -292,7 +292,7 @@ typedef enum {
     ROR, STRMOV, RND, JEQ, MOD, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
-    INC_MEM, DEC_MEM, JO, JNO,
+    INC_MEM, DEC_MEM, JO, JNO, JGE, JLE,
     INVALID_INST
 } InstructionType;
 
@@ -348,6 +348,7 @@ typedef struct {
 #define INT_BREAKPOINT      0x40 // Trigger host debugger breakpoint (if attached and set)
 #define INT_DRAW_STRING_GFX 0x41 // Draw string (R0=X, R1=Y, R2=StrAddr, R3=ColorIdx)
 #define INT_BLIT            0x42 // Blit from Mem (R0=DX, R1=DY, R2=SrcAddr, R3=SW, R4=SH)
+#define INT_GET_SCREEN_SIZE 0x43 // Get current GFX screen dimensions (R0=Width, R1=Height)
 
 #define MAX_OPEN_FILES 16
 
@@ -822,6 +823,8 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "DECMEM") == 0) return DEC_MEM;
     if (strcmp(instruction, "JO") == 0) return JO;
     if (strcmp(instruction, "JNO") == 0) return JNO;
+    if (strcmp(instruction, "JGE") == 0) return JGE;
+    if (strcmp(instruction, "JLE") == 0) return JLE;
     return INVALID_INST;
 }
 
@@ -2132,6 +2135,23 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
     }
     break;
 
+    case INT_GET_SCREEN_SIZE:
+    {
+        int width_reg = 0;
+        int height_reg = 1;
+
+        if (!isValidReg(width_reg) || !isValidReg(height_reg)) {
+            fprintf(stderr, "Error (INT 0x43): Hardcoded result registers R%d/R%d invalid!\n", width_reg, height_reg);
+            if (isValidReg(0)) cpu->registers[0] = -1;
+            if (isValidReg(1)) cpu->registers[1] = -1;
+            break;
+        }
+
+        cpu->registers[width_reg] = cpu->screen_width;
+        cpu->registers[height_reg] = cpu->screen_height;
+    }
+    break;
+
     default:
         fprintf(stderr, "Error: Unknown interrupt code 0x%X at line %d\n", interrupt_id, cpu->ip + 1);
         break;
@@ -2763,6 +2783,27 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             }
             else {
                 fprintf(stderr, "Error: Invalid JNO format at line %d (Expected: JNO <line_number/label>)\n", cpu->ip + 1);
+            }
+            break;
+        case JGE:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_LESS) == 0) {
+                    jmp(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid JGE format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case JLE:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_GREATER) == 0) {
+                    jmp(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid JLE format at line %d\n", cpu->ip + 1);
             }
             break;
 

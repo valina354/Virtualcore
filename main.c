@@ -14,6 +14,7 @@
 #include <SDL.h>
 #include <stdbool.h>
 
+#define CPU_VERSION 1
 #define MEMORY_SIZE (1024 * 1024)
 #define NUM_REGISTERS 16
 #define MAX_PROGRAM_SIZE 65536
@@ -29,7 +30,7 @@ typedef enum {
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
-    STRCMP, STRLEN, STRCPY,
+    STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID,
     INVALID_INST
 } InstructionType;
 
@@ -190,6 +191,9 @@ void btog_op(VirtualCPU* cpu, int reg1, int bit_index);
 void strcmp_op(VirtualCPU* cpu, int reg_addr1, int reg_addr2);
 void strlen_op(VirtualCPU* cpu, int reg_dest, int reg_addr);
 void strcpy_op(VirtualCPU* cpu, int reg_dest_addr, int reg_src_addr);
+void memcpy_op(VirtualCPU* cpu, int dest_addr_reg, int src_addr_reg, int len_reg);
+void memset_op(VirtualCPU* cpu, int dest_addr_reg, int val_reg, int len_reg);
+void cpuid_op(VirtualCPU* cpu, int dest_reg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -545,6 +549,9 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "STRCMP") == 0) return STRCMP;
     if (strcmp(instruction, "STRLEN") == 0) return STRLEN;
     if (strcmp(instruction, "STRCPY") == 0) return STRCPY;
+    if (strcmp(instruction, "MEMCPY") == 0) return MEMCPY;
+    if (strcmp(instruction, "MEMSET") == 0) return MEMSET;
+    if (strcmp(instruction, "CPUID") == 0) return CPUID;
     return INVALID_INST;
 }
 
@@ -2521,6 +2528,32 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
                 fprintf(stderr, "Error: Invalid STRCPY format at line %d (Expected: STRCPY Rdest_addr, Rsrc_addr)\n", cpu->ip + 1);
             }
             break;
+        case MEMCPY:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d, R%d", &operands[0], &operands[1], &operands[2]) == 3) {
+                memcpy_op(cpu, operands[0], operands[1], operands[2]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid MEMCPY format at line %d (Expected: MEMCPY Rdest_addr, Rsrc_addr, Rlen)\n", cpu->ip + 1);
+            }
+            break;
+
+        case MEMSET:
+            if (sscanf(current_instruction_line, "%*s R%d, R%d, R%d", &operands[0], &operands[1], &operands[2]) == 3) {
+                memset_op(cpu, operands[0], operands[1], operands[2]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid MEMSET format at line %d (Expected: MEMSET Rdest_addr, Rval, Rlen)\n", cpu->ip + 1);
+            }
+            break;
+
+        case CPUID:
+            if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
+                cpuid_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CPUID format at line %d (Expected: CPUID Rdest)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -3236,6 +3269,89 @@ void strcpy_op(VirtualCPU* cpu, int reg_dest_addr, int reg_src_addr) {
             break;
         }
     }
+}
+
+void memcpy_op(VirtualCPU* cpu, int dest_addr_reg, int src_addr_reg, int len_reg) {
+    if (!isValidReg(dest_addr_reg) || !isValidReg(src_addr_reg) || !isValidReg(len_reg)) {
+        fprintf(stderr, "Error MEMCPY: Invalid register operand at line %d\n", cpu->ip + 1);
+        return;
+    }
+
+    int dest_addr = cpu->registers[dest_addr_reg];
+    int src_addr = cpu->registers[src_addr_reg];
+    int len = cpu->registers[len_reg];
+
+    if (len <= 0) {
+        return;
+    }
+
+    if (!isValidMem(src_addr) || !isValidMem(src_addr + len - 1)) {
+        fprintf(stderr, "Error MEMCPY: Source memory range [0x%X - 0x%X] is invalid at line %d\n",
+            src_addr, src_addr + len - 1, cpu->ip + 1);
+        return;
+    }
+    if (!isValidMem(dest_addr) || !isValidMem(dest_addr + len - 1)) {
+        fprintf(stderr, "Error MEMCPY: Destination memory range [0x%X - 0x%X] is invalid at line %d\n",
+            dest_addr, dest_addr + len - 1, cpu->ip + 1);
+        return;
+    }
+
+    if ((src_addr < dest_addr && src_addr + len > dest_addr) ||
+        (dest_addr < src_addr && dest_addr + len > src_addr)) {
+        fprintf(stderr, "Warning MEMCPY: Source and destination memory regions overlap at line %d. Behavior might be undefined.\n", cpu->ip + 1);
+    }
+
+    for (int i = 0; i < len; i++) {
+        if (isValidMem(src_addr + i) && isValidMem(dest_addr + i)) {
+            cpu->memory[dest_addr + i] = cpu->memory[src_addr + i];
+        }
+        else {
+            fprintf(stderr, "FATAL Error MEMCPY: Bounds exceeded *during* copy at line %d! Should not happen.\n", cpu->ip + 1);
+            cpu->ip = MEMORY_SIZE + 1;
+            break;
+        }
+    }
+}
+
+void memset_op(VirtualCPU* cpu, int dest_addr_reg, int val_reg, int len_reg) {
+    if (!isValidReg(dest_addr_reg) || !isValidReg(val_reg) || !isValidReg(len_reg)) {
+        fprintf(stderr, "Error MEMSET: Invalid register operand at line %d\n", cpu->ip + 1);
+        return;
+    }
+
+    int dest_addr = cpu->registers[dest_addr_reg];
+    int value = cpu->registers[val_reg];
+    int len = cpu->registers[len_reg];
+    unsigned char byte_value = value & 0xFF;
+
+    if (len <= 0) {
+        return;
+    }
+
+    if (!isValidMem(dest_addr) || !isValidMem(dest_addr + len - 1)) {
+        fprintf(stderr, "Error MEMSET: Destination memory range [0x%X - 0x%X] is invalid at line %d\n",
+            dest_addr, dest_addr + len - 1, cpu->ip + 1);
+        return;
+    }
+
+    for (int i = 0; i < len; i++) {
+        if (isValidMem(dest_addr + i)) {
+            cpu->memory[dest_addr + i] = byte_value;
+        }
+        else {
+            fprintf(stderr, "FATAL Error MEMSET: Bounds exceeded *during* set at line %d! Should not happen.\n", cpu->ip + 1);
+            cpu->ip = MEMORY_SIZE + 1;
+            break;
+        }
+    }
+}
+
+void cpuid_op(VirtualCPU* cpu, int dest_reg) {
+    if (!isValidReg(dest_reg)) {
+        fprintf(stderr, "Error CPUID: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+        return;
+    }
+    cpu->registers[dest_reg] = CPU_VERSION;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

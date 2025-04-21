@@ -2061,6 +2061,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
 
                 int src_reg = -1;
                 int immediate_val = 0;
+                bool parsed_operand2 = false;
 
                 if (operand2_str[0] == 'R' && sscanf(operand2_str, "R%d", &src_reg) == 1) {
                     if (!isValidReg(src_reg)) {
@@ -2068,12 +2069,22 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
                     }
                     else {
                         cpu->registers[dest_reg] = cpu->registers[src_reg];
+                        parsed_operand2 = true;
                     }
                 }
-                else if (sscanf(operand2_str, "%d", &immediate_val) == 1) {
+                else if ((operand2_str[0] == '0' && (operand2_str[1] == 'x' || operand2_str[1] == 'X')) &&
+                    sscanf(operand2_str, "%x", &immediate_val) == 1) {
                     mov(cpu, dest_reg, immediate_val);
+                    parsed_operand2 = true;
                 }
-                else {
+                else if (isdigit((unsigned char)operand2_str[0]) || (operand2_str[0] == '-' && isdigit((unsigned char)operand2_str[1]))) {
+                    if (sscanf(operand2_str, "%d", &immediate_val) == 1) {
+                        mov(cpu, dest_reg, immediate_val);
+                        parsed_operand2 = true;
+                    }
+                }
+
+                if (!parsed_operand2) {
                     fprintf(stderr, "Error: Invalid MOV second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
                 }
             }

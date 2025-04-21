@@ -14,21 +14,21 @@
 #include <SDL.h>
 #include <stdbool.h>
 
-#define MEMORY_SIZE (128 * 1024)
+#define MEMORY_SIZE (1024 * 1024)
 #define NUM_REGISTERS 16
-#define MAX_PROGRAM_SIZE 4096
-#define MAX_LINE_LENGTH 256
+#define MAX_PROGRAM_SIZE 65536
+#define MAX_LINE_LENGTH 512
 #define DEFAULT_SCREEN_WIDTH 256
 #define DEFAULT_SCREEN_HEIGHT 192
 #define MAX_SCREEN_DIM 1024
 #define PALETTE_SIZE 16
-#define MAX_DEFINES 256 
+#define MAX_DEFINES 4096
 
 typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
-    LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF,
+    LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     INVALID_INST
 } InstructionType;
 
@@ -147,6 +147,10 @@ void loope_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void loopne_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void setf_op(VirtualCPU* cpu, int flag_mask);
 void clrf_op(VirtualCPU* cpu, int flag_mask);
+void bt_op(VirtualCPU* cpu, int reg1, int bit_index);
+void bset_op(VirtualCPU* cpu, int reg1, int bit_index);
+void bclr_op(VirtualCPU* cpu, int reg1, int bit_index);
+void btog_op(VirtualCPU* cpu, int reg1, int bit_index);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -358,6 +362,10 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "LOOPNZ") == 0) return LOOPNE; // Synonym
     if (strcmp(instruction, "SETF") == 0) return SETF;
     if (strcmp(instruction, "CLRF") == 0) return CLRF;
+    if (strcmp(instruction, "BT") == 0) return BT;
+    if (strcmp(instruction, "BSET") == 0) return BSET;
+    if (strcmp(instruction, "BCLR") == 0) return BCLR;
+    if (strcmp(instruction, "BTOG") == 0) return BTOG;
     return INVALID_INST;
 }
 
@@ -369,7 +377,13 @@ int loadProgram(const char* filename, char* program[], int max_size) {
     }
 
     char buffer[MAX_LINE_LENGTH];
-    char* temp_program[MAX_PROGRAM_SIZE];
+    char** temp_program = (char**)malloc(max_size * sizeof(char*));
+    if (!temp_program) {
+        fprintf(stderr, "Error: Memory allocation failed for temp_program.\n");
+        fclose(file);
+        return -2;
+    }
+    memset(temp_program, 0, max_size * sizeof(char*));
     int temp_line_count = 0;
 
     DefineEntry define_map[MAX_DEFINES];
@@ -425,12 +439,20 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         if (!temp_program[temp_line_count]) {
             fprintf(stderr, "Error: Memory allocation failed during program load.\n");
             for (int i = 0; i < temp_line_count; ++i) free(temp_program[i]);
+            free(temp_program);
             fclose(file);
             return -2;
         }
         temp_line_count++;
     }
     fclose(file);
+
+    if (temp_line_count >= max_size && fgets(buffer, sizeof(buffer), file) != NULL) {
+        fprintf(stderr, "Error: Program exceeds maximum size of %d lines.\n", max_size);
+        for (int i = 0; i < temp_line_count; ++i) free(temp_program[i]);
+        free(temp_program);
+        return -3;
+    }
 
     if (temp_line_count >= max_size && fgets(buffer, sizeof(buffer), file) != NULL) {
         fprintf(stderr, "Error: Program exceeds maximum size of %d lines.\n", max_size);
@@ -528,7 +550,13 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         char label_name[64];
         int line_number;
     } LabelEntry;
-    LabelEntry label_map[MAX_PROGRAM_SIZE];
+    LabelEntry* label_map = (LabelEntry*)malloc(max_size * sizeof(LabelEntry));
+    if (!label_map) {
+        fprintf(stderr, "Error: Memory allocation failed for label_map.\n");
+        for (int i = 0; i < temp_line_count; ++i) if (temp_program[i]) free(temp_program[i]);
+        free(temp_program);
+        return -2;
+    }
     int label_count = 0;
     int final_program_size = 0;
 
@@ -584,7 +612,9 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             }
             else {
                 fprintf(stderr, "Error: Program size exceeded during label processing.\n");
-                free(temp_program[i]);
+                for (int j = i; j < temp_line_count; ++j) if (temp_program[j]) free(temp_program[j]);
+                free(temp_program);
+                free(label_map);
                 return -3;
             }
         }
@@ -650,6 +680,9 @@ int loadProgram(const char* filename, char* program[], int max_size) {
     for (int i = 0; i < temp_line_count; ++i) {
         if (temp_program[i]) free(temp_program[i]);
     }
+
+    free(temp_program);
+    free(label_map);
 
     return final_program_size;
 }
@@ -1385,6 +1418,59 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
                 fprintf(stderr, "Error: Invalid CLRF format at line %d (Expected: CLRF <hex_mask> or CLRF 0)\n", cpu->ip + 1);
             }
             break;
+        case BT:
+        case BSET:
+        case BCLR:
+        case BTOG:
+        {
+            int dest_reg = -1;
+            char operand2_str[MAX_LINE_LENGTH];
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error %s: Invalid destination register R%d at line %d\n", op_str, dest_reg, cpu->ip + 1);
+                    break;
+                }
+
+                int bit_source_reg = -1;
+                int immediate_bit_index = -1;
+                bool immediate_mode = true;
+
+                if (operand2_str[0] == 'R' && sscanf(operand2_str, "R%d", &bit_source_reg) == 1) {
+                    if (!isValidReg(bit_source_reg)) {
+                        fprintf(stderr, "Error %s: Invalid bit source register %s at line %d\n", op_str, operand2_str, cpu->ip + 1);
+                        break;
+                    }
+                    immediate_mode = false;
+                    immediate_bit_index = cpu->registers[bit_source_reg];
+                }
+                else if (sscanf(operand2_str, "%d", &immediate_bit_index) == 1) {
+                    immediate_mode = true;
+                }
+                else {
+                    fprintf(stderr, "Error %s: Invalid second operand '%s' at line %d\n", op_str, operand2_str, cpu->ip + 1);
+                    break;
+                }
+
+                if (immediate_bit_index < 0 || immediate_bit_index >= 32) {
+                    fprintf(stderr, "Error %s: Invalid bit index %d (must be 0-31) at line %d\n", op_str, immediate_bit_index, cpu->ip + 1);
+                    break;
+                }
+
+                switch (inst) {
+                case BT:   bt_op(cpu, dest_reg, immediate_bit_index); break;
+                case BSET: bset_op(cpu, dest_reg, immediate_bit_index); break;
+                case BCLR: bclr_op(cpu, dest_reg, immediate_bit_index); break;
+                case BTOG: btog_op(cpu, dest_reg, immediate_bit_index); break;
+                default:
+                    fprintf(stderr, "Error: Reached bit op handler with invalid instruction %d\n", inst);
+                    break;
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid %s format structure at line %d: '%s'\n", op_str, cpu->ip + 1, current_instruction_line);
+            }
+            break;
+        }
 
         case INVALID_INST:
         default:
@@ -1906,6 +1992,67 @@ void clrf_op(VirtualCPU* cpu, int flag_mask) {
     }
 }
 
+void bt_op(VirtualCPU* cpu, int reg1, int bit_index) {
+    if (!isValidReg(reg1)) {
+        fprintf(stderr, "Error BT: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
+        return;
+    }
+    if (bit_index < 0 || bit_index >= 32) {
+        fprintf(stderr, "Error BT: Invalid bit index %d at line %d\n", bit_index, cpu->ip + 1);
+        return;
+    }
+
+    unsigned int mask = 1U << bit_index;
+
+    cpu->flags &= ~FLAG_ZERO;
+
+    if ((cpu->registers[reg1] & mask) == 0) {
+        cpu->flags |= FLAG_ZERO;
+    }
+}
+
+void bset_op(VirtualCPU* cpu, int reg1, int bit_index) {
+    if (!isValidReg(reg1)) {
+        fprintf(stderr, "Error BSET: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
+        return;
+    }
+    if (bit_index < 0 || bit_index >= 32) {
+        fprintf(stderr, "Error BSET: Invalid bit index %d at line %d\n", bit_index, cpu->ip + 1);
+        return;
+    }
+
+    unsigned int mask = 1U << bit_index;
+    cpu->registers[reg1] |= mask;
+}
+
+void bclr_op(VirtualCPU* cpu, int reg1, int bit_index) {
+    if (!isValidReg(reg1)) {
+        fprintf(stderr, "Error BCLR: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
+        return;
+    }
+    if (bit_index < 0 || bit_index >= 32) {
+        fprintf(stderr, "Error BCLR: Invalid bit index %d at line %d\n", bit_index, cpu->ip + 1);
+        return;
+    }
+
+    unsigned int mask = 1U << bit_index;
+    cpu->registers[reg1] &= ~mask;
+}
+
+void btog_op(VirtualCPU* cpu, int reg1, int bit_index) {
+    if (!isValidReg(reg1)) {
+        fprintf(stderr, "Error BTOG: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
+        return;
+    }
+    if (bit_index < 0 || bit_index >= 32) {
+        fprintf(stderr, "Error BTOG: Invalid bit index %d at line %d\n", bit_index, cpu->ip + 1);
+        return;
+    }
+
+    unsigned int mask = 1U << bit_index;
+    cpu->registers[reg1] ^= mask;
+}
+
 void audioCallback(void* userdata, Uint8* stream, int len) {
     VirtualCPU* cpu = (VirtualCPU*)userdata;
     Sint16* audio_stream = (Sint16*)stream;
@@ -1950,13 +2097,23 @@ int main(int argc, char* argv[]) {
     char* program[MAX_PROGRAM_SIZE];
     const char* filename = "program.asm";
     int program_size = 0;
-    VirtualCPU cpu;
+    VirtualCPU* cpu_ptr = NULL;
     bool sdl_initialized = false;
     bool cpu_initialized = false;
 
+    printf("Allocating Virtual CPU on heap...\n");
+    cpu_ptr = (VirtualCPU*)malloc(sizeof(VirtualCPU));
+    if (!cpu_ptr) {
+        fprintf(stderr, "Fatal: Failed to allocate memory for VirtualCPU struct.\n");
+        return 1;
+    }
+    printf("CPU Struct Allocated.\n");
+
+
     printf("Initializing Virtual CPU...\n");
-    if (!init_cpu(&cpu)) {
+    if (!init_cpu(cpu_ptr)) {
         fprintf(stderr, "CPU Initialization failed.\n");
+        free(cpu_ptr);
         return 1;
     }
     cpu_initialized = true;
@@ -1964,29 +2121,31 @@ int main(int argc, char* argv[]) {
 
 
     printf("Initializing SDL...\n");
-    if (!init_sdl(&cpu)) {
+    if (!init_sdl(cpu_ptr)) {
         fprintf(stderr, "SDL Initialization failed.\n");
-        if (cpu_initialized) cleanup_cpu(&cpu);
+        if (cpu_initialized) cleanup_cpu(cpu_ptr);
+        free(cpu_ptr);
         return 1;
     }
     sdl_initialized = true;
     printf("SDL Initialized.\n");
 
 
-    printf("Loading program '%s'...\n", filename);
+    printf("Loading program '%s'...\n");
     program_size = loadProgram(filename, program, MAX_PROGRAM_SIZE);
 
     if (program_size < 0) {
         fprintf(stderr, "Failed to load program (Error code: %d).\n", program_size);
-        if (sdl_initialized) cleanup_sdl(&cpu);
-        if (cpu_initialized) cleanup_cpu(&cpu);
+        if (sdl_initialized) cleanup_sdl(cpu_ptr);
+        if (cpu_initialized) cleanup_cpu(cpu_ptr);
+        free(cpu_ptr);
         return 1;
     }
     printf("Program loaded successfully (%d lines).\n", program_size);
 
 
     printf("Starting execution...\n");
-    execute(&cpu, program, program_size);
+    execute(cpu_ptr, program, program_size);
 
     printf("Cleaning up...\n");
     for (int i = 0; i < program_size; i++) {
@@ -1996,14 +2155,17 @@ int main(int argc, char* argv[]) {
     printf("Program memory freed.\n");
 
     if (sdl_initialized) {
-        cleanup_sdl(&cpu);
+        cleanup_sdl(cpu_ptr);
         printf("SDL resources cleaned up.\n");
     }
 
     if (cpu_initialized) {
-        cleanup_cpu(&cpu);
+        cleanup_cpu(cpu_ptr);
         printf("CPU resources cleaned up.\n");
     }
+
+    free(cpu_ptr);
+    printf("CPU struct memory freed.\n");
 
     printf("Exiting.\n");
     return 0;

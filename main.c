@@ -2969,8 +2969,6 @@ void loope_op(VirtualCPU* cpu, int counter_reg, int target_line) {
     if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_ZERO) != 0) {
         jmp(cpu, target_line);
     }
-    else {
-    }
 }
 
 void loopne_op(VirtualCPU* cpu, int counter_reg, int target_line) {
@@ -2983,8 +2981,6 @@ void loopne_op(VirtualCPU* cpu, int counter_reg, int target_line) {
 
     if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_ZERO) == 0) {
         jmp(cpu, target_line);
-    }
-    else {
     }
 }
 

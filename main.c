@@ -905,6 +905,9 @@ void updateScreen(VirtualCPU* cpu) {
 
 void interrupt(VirtualCPU* cpu, int interrupt_id) {
     switch (interrupt_id) {
+    case 0x00:
+        nop(cpu);
+        break;
     case INT_PRINT_REG0:
         printf("%d\n", cpu->registers[0]);
         break;
@@ -3474,7 +3477,7 @@ int main(int argc, char* argv[]) {
     printf("Program memory freed.\n");
 
     if (sdl_initialized) {
-        cleanup_sdl(cpu_ptr);
+        cleanup_sdl(    cpu_ptr);
         printf("SDL resources cleaned up.\n");
     }
 

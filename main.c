@@ -1126,7 +1126,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
 
         char* label_operand_str = NULL;
 
-        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO) {
+        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO || inst == JGE || inst == JLE) {
             if (scan_count >= 2) label_operand_str = operand1_str;
         }
         else if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
@@ -1163,7 +1163,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                 fprintf(stderr, "Error: Label '%s' not found (used in line %d: '%s')\n", label_operand_str, i + 1, instruction);
             }
         }
-        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == JO || inst == JNO)) {
+        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == JO || inst == JNO || inst == JGE || inst == JLE)) {
             fprintf(stderr, "Error: Missing or invalid label operand for %s instruction at line %d: '%s'\n", op, i + 1, instruction);
         }
     }
@@ -1377,6 +1377,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         break;
 
     case INT_SCREEN_OFF:
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
         cpu->screen_on = 0;
         break;
 
@@ -1415,6 +1418,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         else if (new_width <= 0 || new_height <= 0 || new_width > MAX_SCREEN_DIM || new_height > MAX_SCREEN_DIM) {
             fprintf(stderr, "Warning (INT 0x18): Invalid screen resolution requested: %dx%d. Max is %dx%d.\n",
                 new_width, new_height, MAX_SCREEN_DIM, MAX_SCREEN_DIM);
+        }
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
         }
     }
     break;
@@ -1519,6 +1525,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
     case INT_GET_PIXEL:
     {
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
         int x = cpu->registers[0];
         int y = cpu->registers[1];
         int result_reg = 0;
@@ -1625,7 +1634,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         cpu->registers[0] = MEMORY_SIZE;
     }
     break;
-    case INT_SET_CONSOLE_COLOR: // 0x2F
+    case INT_SET_CONSOLE_COLOR:
     {
         int fg_color = cpu->registers[0];
         int bg_color = cpu->registers[1];
@@ -2047,7 +2056,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         int current_x = x;
         while (isValidMem(current_addr)) {
             unsigned char c = (unsigned char)cpu->memory[current_addr];
-            if (c == 0) break; // Null terminator
+            if (c == 0) break;
 
             const unsigned char* char_data = vga_font_8x16[c];
 
@@ -2072,10 +2081,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
             current_x += 8;
             current_addr++;
-        }
-
-        if (cpu->screen_on == 1) {
-            updateScreen(cpu);
         }
     }
     break;
@@ -2128,10 +2133,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
                 }
             }
         }
-
-        if (cpu->screen_on == 1) {
-            updateScreen(cpu);
-        }
     }
     break;
 
@@ -2160,7 +2161,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
 void execute(VirtualCPU* cpu, char* program[], int program_size) {
     bool running = true;
-    while (running && cpu->ip < program_size) {
+    Uint32 last_frame_time = SDL_GetTicks();
+    const Uint32 FRAME_DURATION_MS = 1000 / 60;
+    while (running && cpu->ip < program_size && !cpu->shutdown_requested) {
         char* current_instruction_line = program[cpu->ip];
         char op_str[10];
         int operands[3] = { 0, 0, 0 };
@@ -2816,6 +2819,11 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
 
         if (running && cpu->ip == current_ip) {
             cpu->ip++;
+        }
+        Uint32 current_time = SDL_GetTicks();
+        if (cpu->screen_on && (current_time - last_frame_time >= FRAME_DURATION_MS)) {
+            updateScreen(cpu);
+            last_frame_time = current_time;
         }
     }
 

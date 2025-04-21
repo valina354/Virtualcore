@@ -28,9 +28,10 @@
 typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
-    ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
+    ROR, STRMOV, RND, JEQ, MOD, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
+    INC_MEM, DEC_MEM, JO, JNO,
     INVALID_INST
 } InstructionType;
 
@@ -42,6 +43,7 @@ typedef struct {
 #define FLAG_ZERO   0x01
 #define FLAG_GREATER 0x02
 #define FLAG_LESS   0x04
+#define FLAG_OVERFLOW 0x08
 
 #define INT_PRINT_REG0      0x01 // Print integer in R0
 #define INT_PRINT_STRING    0x02 // Print string from memory address in R0 until null terminator
@@ -165,7 +167,6 @@ void rol(VirtualCPU* cpu, int reg1, int count);
 void ror(VirtualCPU* cpu, int reg1, int count);
 void rnd(VirtualCPU* cpu, int reg1);
 void mod_op(VirtualCPU* cpu, int reg1, int reg2);
-void pow_op(VirtualCPU* cpu, int reg1, int reg2);
 void sqrt_op(VirtualCPU* cpu, int reg1);
 void abs_op(VirtualCPU* cpu, int reg1);
 void loop_op(VirtualCPU* cpu, int counter_reg, int target_line);
@@ -192,6 +193,8 @@ void cpuid_op(VirtualCPU* cpu, int dest_reg);
 void bswap_op(VirtualCPU* cpu, int reg);
 void sar_op(VirtualCPU* cpu, int reg, int count);
 void rvd_op(VirtualCPU* cpu, int reg);
+void inc_mem_op(VirtualCPU* cpu, int addr_reg);
+void dec_mem_op(VirtualCPU* cpu, int addr_reg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -524,7 +527,6 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "RND") == 0) return RND;
     if (strcmp(instruction, "JEQ") == 0) return JEQ;
     if (strcmp(instruction, "MOD") == 0) return MOD;
-    if (strcmp(instruction, "POW") == 0) return POW;
     if (strcmp(instruction, "SQRT") == 0) return SQRT;
     if (strcmp(instruction, "ABS") == 0) return ABS;
     if (strcmp(instruction, "LOOP") == 0) return LOOP;
@@ -553,6 +555,10 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "BSWAP") == 0) return BSWAP;
     if (strcmp(instruction, "SAR") == 0) return SAR;
     if (strcmp(instruction, "RVD") == 0) return RVD;
+    if (strcmp(instruction, "INCMEM") == 0) return INC_MEM;
+    if (strcmp(instruction, "DECMEM") == 0) return DEC_MEM;
+    if (strcmp(instruction, "JO") == 0) return JO;
+    if (strcmp(instruction, "JNO") == 0) return JNO;
     return INVALID_INST;
 }
 
@@ -854,7 +860,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
 
         char* label_operand_str = NULL;
 
-        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ) {
+        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO) {
             if (scan_count >= 2) label_operand_str = operand1_str;
         }
         else if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
@@ -891,7 +897,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                 fprintf(stderr, "Error: Label '%s' not found (used in line %d: '%s')\n", label_operand_str, i + 1, instruction);
             }
         }
-        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP || inst == LOOPE || inst == LOOPNE)) {
+        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == JO || inst == JNO)) {
             fprintf(stderr, "Error: Missing or invalid label operand for %s instruction at line %d: '%s'\n", op, i + 1, instruction);
         }
     }
@@ -1210,10 +1216,11 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
             printf(" R%d: %d (0x%X)\n", i, cpu->registers[i], cpu->registers[i]);
         }
         printf(" IP: %d\n", cpu->ip);
-        printf(" Flags: 0x%X (Z:%d G:%d L:%d)\n", cpu->flags,
+        printf(" Flags: 0x%X (Z:%d G:%d L:%d O:%d)\n", cpu->flags,
             (cpu->flags & FLAG_ZERO) ? 1 : 0,
             (cpu->flags & FLAG_GREATER) ? 1 : 0,
-            (cpu->flags & FLAG_LESS) ? 1 : 0);
+            (cpu->flags & FLAG_LESS) ? 1 : 0,
+            (cpu->flags & FLAG_OVERFLOW) ? 1 : 0);
         printf(" SP (R15): %d (0x%X)\n", cpu->registers[15], cpu->registers[15]);
         printf("---------------------\n");
         break;
@@ -1855,12 +1862,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
             }
             else { fprintf(stderr, "Error: Invalid MOD format at line %d\n", cpu->ip + 1); }
             break;
-        case POW:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                pow_op(cpu, operands[0], operands[1]);
-            }
-            else { fprintf(stderr, "Error: Invalid POW format at line %d\n", cpu->ip + 1); }
-            break;
         case SQRT:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 sqrt_op(cpu, operands[0]);
@@ -2345,6 +2346,45 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
                 fprintf(stderr, "Error: Invalid RVD format at line %d (Expected: RVD Rx)\n", cpu->ip + 1); // Changed from REVDEC
             }
             break;
+        case INC_MEM:
+            if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
+                inc_mem_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid INC_MEM format at line %d (Expected: INC_MEM Rx)\n", cpu->ip + 1);
+            }
+            break;
+
+        case DEC_MEM:
+            if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
+                dec_mem_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid DEC_MEM format at line %d (Expected: DEC_MEM Rx)\n", cpu->ip + 1);
+            }
+            break;  
+
+        case JO:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_OVERFLOW) != 0) {
+                    jmp(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid JO format at line %d (Expected: JO <line_number/label>)\n", cpu->ip + 1);
+            }
+            break;
+
+        case JNO:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_OVERFLOW) == 0) {
+                    jmp(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid JNO format at line %d (Expected: JNO <line_number/label>)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -2377,26 +2417,67 @@ void mov(VirtualCPU* cpu, int reg1, int value) {
 
 void add(VirtualCPU* cpu, int reg1, int reg2) {
     if (!isValidReg(reg1) || !isValidReg(reg2)) { fprintf(stderr, "Error ADD: Invalid register R%d or R%d\n", reg1, reg2); return; }
-    cpu->registers[reg1] += cpu->registers[reg2];
+    int val1 = cpu->registers[reg1];
+    int val2 = cpu->registers[reg2];
+    int result = val1 + val2;
+
+    if (((val1 > 0 && val2 > 0) && (result < 0)) || ((val1 < 0 && val2 < 0) && (result > 0))) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->registers[reg1] = result;
 }
 
 void sub(VirtualCPU* cpu, int reg1, int reg2) {
     if (!isValidReg(reg1) || !isValidReg(reg2)) { fprintf(stderr, "Error SUB: Invalid register R%d or R%d\n", reg1, reg2); return; }
-    cpu->registers[reg1] -= cpu->registers[reg2];
+    int val1 = cpu->registers[reg1];
+    int val2 = cpu->registers[reg2];
+    int result = val1 - val2;
+
+    if (((val1 > 0 && val2 < 0) && (result < 0)) || ((val1 < 0 && val2 > 0) && (result > 0))) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->registers[reg1] = result;
 }
 
 void mul(VirtualCPU* cpu, int reg1, int reg2) {
     if (!isValidReg(reg1) || !isValidReg(reg2)) { fprintf(stderr, "Error MUL: Invalid register R%d or R%d\n", reg1, reg2); return; }
-    cpu->registers[reg1] *= cpu->registers[reg2];
+    long long val1 = (long long)cpu->registers[reg1];
+    long long val2 = (long long)cpu->registers[reg2];
+    long long result = val1 * val2;
+
+    if (result > INT_MAX || result < INT_MIN) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->registers[reg1] = (int)result;
 }
 
 void divi(VirtualCPU* cpu, int reg1, int reg2) {
     if (!isValidReg(reg1) || !isValidReg(reg2)) { fprintf(stderr, "Error DIV: Invalid register R%d or R%d\n", reg1, reg2); return; }
-    if (cpu->registers[reg2] != 0) {
-        cpu->registers[reg1] /= cpu->registers[reg2];
+    int val1 = cpu->registers[reg1];
+    int val2 = cpu->registers[reg2];
+
+    if (val2 == 0) {
+        fprintf(stderr, "Error: Division by zero (DIV R%d, R%d) at line %d.\n", reg1, reg2, cpu->ip + 1);
+        cpu->flags &= ~FLAG_OVERFLOW;
+        return;
+    }
+
+    if (val1 == INT_MIN && val2 == -1) {
+        cpu->flags |= FLAG_OVERFLOW;
+        cpu->registers[reg1] = val1 / val2;
     }
     else {
-        fprintf(stderr, "Error: Division by zero (DIV R%d, R%d) at line %d.\n", reg1, reg2, cpu->ip + 1);
+        cpu->flags &= ~FLAG_OVERFLOW;
+        cpu->registers[reg1] = val1 / val2;
     }
 }
 
@@ -2410,52 +2491,28 @@ void mod_op(VirtualCPU* cpu, int reg1, int reg2) {
     }
 }
 
-void pow_op(VirtualCPU* cpu, int reg1, int reg2) {
-    if (!isValidReg(reg1) || !isValidReg(reg2)) { fprintf(stderr, "Error POW: Invalid register R%d or R%d\n", reg1, reg2); return; }
-    long long base = cpu->registers[reg1];
-    int exponent = cpu->registers[reg2];
-    long long result = 1;
-
-    if (exponent < 0) {
-        fprintf(stderr, "Warning (POW): Negative exponent %d. Result set to 0.\n", exponent);
-        result = 0;
-    }
-    else if (exponent == 0) {
-        result = 1;
-    }
-    else {
-        for (int i = 0; i < exponent; i++) {
-            if (llabs(base) > 0 && llabs(result) > INT_MAX / llabs(base)) {
-                fprintf(stderr, "Warning (POW): Potential integer overflow. Result truncated.\n");
-            }
-            result *= base;
-        }
-    }
-    if (result > INT_MAX) cpu->registers[reg1] = INT_MAX;
-    else if (result < INT_MIN) cpu->registers[reg1] = INT_MIN;
-    else cpu->registers[reg1] = (int)result;
-}
-
 void sqrt_op(VirtualCPU* cpu, int reg1) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error SQRT: Invalid register R%d\n", reg1); return; }
+    cpu->flags &= ~FLAG_OVERFLOW;
     if (cpu->registers[reg1] >= 0) {
         cpu->registers[reg1] = (int)sqrt((double)cpu->registers[reg1]);
     }
     else {
-        fprintf(stderr, "Warning (SQRT): Negative input %d. Result set to 0.\n", cpu->registers[reg1]);
         cpu->registers[reg1] = 0;
     }
 }
 
 void abs_op(VirtualCPU* cpu, int reg1) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error ABS: Invalid register R%d\n", reg1); return; }
-    if (cpu->registers[reg1] < 0) {
-        if (cpu->registers[reg1] == INT_MIN) {
-            fprintf(stderr, "Warning (ABS): Absolute value of INT_MIN requested. Result remains INT_MIN.\n");
+    int current_value = cpu->registers[reg1];
+    if (current_value == INT_MIN) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        if (current_value < 0) {
+            cpu->registers[reg1] = -current_value;
         }
-        else {
-            cpu->registers[reg1] = -cpu->registers[reg1];
-        }
+        cpu->flags &= ~FLAG_OVERFLOW;
     }
 }
 
@@ -2559,9 +2616,14 @@ void cmp(VirtualCPU* cpu, int reg1, int reg2) {
     int val2 = cpu->registers[reg2];
     int result = val1 - val2;
 
-    cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS);
+    if (((val1 > 0 && val2 < 0) && (result < 0)) || ((val1 < 0 && val2 > 0) && (result > 0))) {
+        cpu->flags = (cpu->flags & ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS)) | FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS | FLAG_OVERFLOW);
+    }
 
-    if (result == 0) {
+    if (val1 == val2) {
         cpu->flags |= FLAG_ZERO;
     }
     else if (val1 > val2) {
@@ -2574,33 +2636,39 @@ void cmp(VirtualCPU* cpu, int reg1, int reg2) {
 
 void neg(VirtualCPU* cpu, int reg1) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error NEG: Invalid register R%d\n", reg1); return; }
-    if (cpu->registers[reg1] == INT_MIN) {
-        fprintf(stderr, "Warning (NEG): Negation of INT_MIN requested. Result remains INT_MIN.\n");
+    int current_value = cpu->registers[reg1];
+    if (current_value == INT_MIN) {
+        cpu->flags |= FLAG_OVERFLOW;
     }
     else {
-        cpu->registers[reg1] = -cpu->registers[reg1];
+        cpu->registers[reg1] = -current_value;
+        cpu->flags &= ~FLAG_OVERFLOW;
     }
 }
 
 void inc(VirtualCPU* cpu, int reg1) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error INC: Invalid register R%d\n", reg1); return; }
-    if (cpu->registers[reg1] == INT_MAX) {
-        fprintf(stderr, "Warning (INC): Integer overflow on increment. Result wrapped to INT_MIN.\n");
+    int current_value = cpu->registers[reg1];
+    if (current_value == INT_MAX) {
         cpu->registers[reg1] = INT_MIN;
+        cpu->flags |= FLAG_OVERFLOW;
     }
     else {
         cpu->registers[reg1]++;
+        cpu->flags &= ~FLAG_OVERFLOW;
     }
 }
 
 void dec(VirtualCPU* cpu, int reg1) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error DEC: Invalid register R%d\n", reg1); return; }
-    if (cpu->registers[reg1] == INT_MIN) {
-        fprintf(stderr, "Warning (DEC): Integer underflow on decrement. Result wrapped to INT_MAX.\n");
+    int current_value = cpu->registers[reg1];
+    if (current_value == INT_MIN) {
         cpu->registers[reg1] = INT_MAX;
+        cpu->flags |= FLAG_OVERFLOW;
     }
     else {
         cpu->registers[reg1]--;
+        cpu->flags &= ~FLAG_OVERFLOW;
     }
 }
 
@@ -2772,21 +2840,14 @@ void store_op(VirtualCPU* cpu, int val_src_reg, int addr_dest_reg) {
 }
 
 void test_op(VirtualCPU* cpu, int reg1, int reg2) {
-    if (!isValidReg(reg1)) {
-        fprintf(stderr, "Error TEST: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
-        return;
-    }
-    if (!isValidReg(reg2)) {
-        fprintf(stderr, "Error TEST: Invalid register R%d at line %d\n", reg2, cpu->ip + 1);
-        return;
-    }
+    if (!isValidReg(reg1)) { fprintf(stderr, "Error TEST: Invalid register R%d at line %d\n", reg1, cpu->ip + 1); return; }
+    if (!isValidReg(reg2)) { fprintf(stderr, "Error TEST: Invalid register R%d at line %d\n", reg2, cpu->ip + 1); return; }
 
     int val1 = cpu->registers[reg1];
     int val2 = cpu->registers[reg2];
-
     int result = val1 & val2;
 
-    cpu->flags &= ~FLAG_ZERO;
+    cpu->flags &= ~(FLAG_ZERO | FLAG_OVERFLOW);
     if (result == 0) {
         cpu->flags |= FLAG_ZERO;
     }
@@ -2854,7 +2915,7 @@ void setf_op(VirtualCPU* cpu, int flag_mask) {
 
 void clrf_op(VirtualCPU* cpu, int flag_mask) {
     if (flag_mask == 0) {
-        cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS);
+        cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS | FLAG_OVERFLOW);
     }
     else {
         cpu->flags &= ~flag_mask;
@@ -3212,6 +3273,56 @@ void rvd_op(VirtualCPU* cpu, int reg) {
 
     reversed_value = (int)(sign * temp_reversed);
     cpu->registers[reg] = reversed_value;
+}
+
+void inc_mem_op(VirtualCPU* cpu, int addr_reg) {
+    if (!isValidReg(addr_reg)) {
+        fprintf(stderr, "Error INC_MEM: Invalid address register R%d at line %d\n", addr_reg, cpu->ip + 1);
+        return;
+    }
+    int address = cpu->registers[addr_reg];
+    if (!isValidMem(address)) {
+        fprintf(stderr, "Error INC_MEM: Invalid memory address 0x%X (from R%d) at line %d\n", address, addr_reg, cpu->ip + 1);
+        return;
+    }
+
+    int current_value = cpu->memory[address];
+    int new_value;
+
+    if (current_value == INT_MAX) {
+        new_value = INT_MIN;
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        new_value = current_value + 1;
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->memory[address] = new_value;
+}
+
+void dec_mem_op(VirtualCPU* cpu, int addr_reg) {
+    if (!isValidReg(addr_reg)) {
+        fprintf(stderr, "Error DEC_MEM: Invalid address register R%d at line %d\n", addr_reg, cpu->ip + 1);
+        return;
+    }
+    int address = cpu->registers[addr_reg];
+    if (!isValidMem(address)) {
+        fprintf(stderr, "Error DEC_MEM: Invalid memory address 0x%X (from R%d) at line %d\n", address, addr_reg, cpu->ip + 1);
+        return;
+    }
+
+    int current_value = cpu->memory[address];
+    int new_value;
+
+    if (current_value == INT_MIN) {
+        new_value = INT_MAX;
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        new_value = current_value - 1;
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->memory[address] = new_value;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

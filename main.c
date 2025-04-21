@@ -28,6 +28,7 @@ typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
+    LEA, PUSHF, POPF,
     INVALID_INST
 } InstructionType;
 
@@ -139,6 +140,9 @@ void loop_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void load_op(VirtualCPU* cpu, int dest_reg, int addr_src_reg);
 void store_op(VirtualCPU* cpu, int val_src_reg, int addr_dest_reg);
 void test_op(VirtualCPU* cpu, int reg1, int reg2);
+void lea_op(VirtualCPU* cpu, int dest_reg, int base_reg, int offset);
+void pushf_op(VirtualCPU* cpu);
+void popf_op(VirtualCPU* cpu);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -341,6 +345,9 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "LOAD") == 0) return LOAD;
     if (strcmp(instruction, "STORE") == 0) return STORE;
     if (strcmp(instruction, "TEST") == 0) return TEST;
+    if (strcmp(instruction, "LEA") == 0) return LEA;
+    if (strcmp(instruction, "PUSHF") == 0) return PUSHF;
+    if (strcmp(instruction, "POPF") == 0) return POPF;
     return INVALID_INST;
 }
 
@@ -1310,6 +1317,30 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
                 fprintf(stderr, "Error: Invalid TEST format at line %d (Expected: TEST R1, R2)\n", cpu->ip + 1);
             }
             break;
+        case LEA: {
+            int dest_reg = -1, base_reg = -1, offset = 0;
+            char base_reg_str[10];
+            if (sscanf(current_instruction_line, "%*s R%d, %[^,], %d", &dest_reg, base_reg_str, &offset) == 3) {
+                if (sscanf(base_reg_str, "R%d", &base_reg) == 1) {
+                    lea_op(cpu, dest_reg, base_reg, offset);
+                }
+                else {
+                    fprintf(stderr, "Error: Invalid LEA base register format '%s' at line %d\n", base_reg_str, cpu->ip + 1);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid LEA format at line %d (Expected: LEA Rdest, Rbase, offset)\n", cpu->ip + 1);
+            }
+            break;
+        }
+
+        case PUSHF:
+            pushf_op(cpu);
+            break;
+
+        case POPF:
+            popf_op(cpu);
+            break;
 
         case INVALID_INST:
         default:
@@ -1732,6 +1763,61 @@ void test_op(VirtualCPU* cpu, int reg1, int reg2) {
     }
 }
 
+void lea_op(VirtualCPU* cpu, int dest_reg, int base_reg, int offset) {
+    if (!isValidReg(dest_reg)) {
+        fprintf(stderr, "Error LEA: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+        return;
+    }
+    if (!isValidReg(base_reg)) {
+        fprintf(stderr, "Error LEA: Invalid base register R%d at line %d\n", base_reg, cpu->ip + 1);
+        return;
+    }
+
+    long long calculated_address = (long long)cpu->registers[base_reg] + offset;
+
+    if (calculated_address > INT_MAX || calculated_address < INT_MIN) {
+        fprintf(stderr, "Warning LEA: Calculated address %lld overflows standard integer at line %d. Clamping.\n", calculated_address, cpu->ip + 1);
+        if (calculated_address > INT_MAX) calculated_address = INT_MAX;
+        if (calculated_address < INT_MIN) calculated_address = INT_MIN;
+    }
+
+    cpu->registers[dest_reg] = (int)calculated_address;
+}
+
+void pushf_op(VirtualCPU* cpu) {
+    int sp = cpu->registers[15];
+    sp--;
+
+    if (sp < 0) {
+        fprintf(stderr, "Error: Stack Overflow during PUSHF at line %d\n", cpu->ip + 1);
+        cpu->registers[15] = 0;
+        return;
+    }
+    if (!isValidMem(sp)) {
+        fprintf(stderr, "Error: Stack Pointer %d out of bounds during PUSHF at line %d.\n", sp, cpu->ip + 1);
+        return;
+    }
+
+    cpu->memory[sp] = cpu->flags;
+    cpu->registers[15] = sp;
+}
+
+void popf_op(VirtualCPU* cpu) {
+    int sp = cpu->registers[15];
+
+    if (sp >= MEMORY_SIZE) {
+        fprintf(stderr, "Error: Stack Underflow during POPF at line %d (SP=%d)\n", cpu->ip + 1, sp);
+        cpu->registers[15] = MEMORY_SIZE;
+        return;
+    }
+    if (!isValidMem(sp)) {
+        fprintf(stderr, "Error: Stack Pointer %d out of bounds during POPF at line %d.\n", sp, cpu->ip + 1);
+        return;
+    }
+
+    cpu->flags = cpu->memory[sp];
+    cpu->registers[15] = sp + 1;
+}
 
 void audioCallback(void* userdata, Uint8* stream, int len) {
     VirtualCPU* cpu = (VirtualCPU*)userdata;

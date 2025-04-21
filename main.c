@@ -28,7 +28,7 @@ typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JEQ, MOD, POW, SQRT, ABS, LOOP, LOAD, STORE, TEST,
-    LEA, PUSHF, POPF,
+    LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF,
     INVALID_INST
 } InstructionType;
 
@@ -143,6 +143,10 @@ void test_op(VirtualCPU* cpu, int reg1, int reg2);
 void lea_op(VirtualCPU* cpu, int dest_reg, int base_reg, int offset);
 void pushf_op(VirtualCPU* cpu);
 void popf_op(VirtualCPU* cpu);
+void loope_op(VirtualCPU* cpu, int counter_reg, int target_line);
+void loopne_op(VirtualCPU* cpu, int counter_reg, int target_line);
+void setf_op(VirtualCPU* cpu, int flag_mask);
+void clrf_op(VirtualCPU* cpu, int flag_mask);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -348,6 +352,12 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcmp(instruction, "LEA") == 0) return LEA;
     if (strcmp(instruction, "PUSHF") == 0) return PUSHF;
     if (strcmp(instruction, "POPF") == 0) return POPF;
+    if (strcmp(instruction, "LOOPE") == 0) return LOOPE;
+    if (strcmp(instruction, "LOOPZ") == 0) return LOOPE; // Synonym
+    if (strcmp(instruction, "LOOPNE") == 0) return LOOPNE;
+    if (strcmp(instruction, "LOOPNZ") == 0) return LOOPNE; // Synonym
+    if (strcmp(instruction, "SETF") == 0) return SETF;
+    if (strcmp(instruction, "CLRF") == 0) return CLRF;
     return INVALID_INST;
 }
 
@@ -598,7 +608,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ) {
             if (scan_count >= 2) label_operand_str = operand1_str;
         }
-        else if (inst == LOOP) {
+        else if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
             if (scan_count == 3) label_operand_str = operand2_str;
         }
 
@@ -613,8 +623,8 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             }
 
             if (target_line != -1) {
-                char new_instruction[MAX_LINE_LENGTH];
-                if (inst == LOOP) {
+                char new_instruction[MAX_LINE_LENGTH];  
+                if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
                     snprintf(new_instruction, sizeof(new_instruction), "%s %s, %d", op, operand1_str, target_line);
                 }
                 else {
@@ -632,7 +642,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                 fprintf(stderr, "Error: Label '%s' not found (used in line %d: '%s')\n", label_operand_str, i + 1, instruction);
             }
         }
-        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP)) {
+        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP || inst == LOOPE || inst == LOOPNE)) {
             fprintf(stderr, "Error: Missing or invalid label operand for %s instruction at line %d: '%s'\n", op, i + 1, instruction);
         }
     }
@@ -1341,6 +1351,40 @@ void execute(VirtualCPU* cpu, char* program[], int program_size) {
         case POPF:
             popf_op(cpu);
             break;
+        case LOOPE:
+            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
+                loope_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid LOOPE/LOOPZ format at line %d (Expected: OP Rx, <line_number>)\n", cpu->ip + 1);
+            }
+            break;
+
+        case LOOPNE:
+            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
+                loopne_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid LOOPNE/LOOPNZ format at line %d (Expected: OP Rx, <line_number>)\n", cpu->ip + 1);
+            }
+            break;
+        case SETF:
+            if (sscanf(current_instruction_line, "%*s %x", &operands[0]) == 1) {
+                setf_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid SETF format at line %d (Expected: SETF <hex_mask>)\n", cpu->ip + 1);
+            }
+            break;
+
+        case CLRF:
+            if (sscanf(current_instruction_line, "%*s %x", &operands[0]) == 1) {
+                clrf_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CLRF format at line %d (Expected: CLRF <hex_mask> or CLRF 0)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -1468,6 +1512,36 @@ void loop_op(VirtualCPU* cpu, int counter_reg, int target_line) {
 
     if (cpu->registers[counter_reg] != 0) {
         jmp(cpu, target_line);
+    }
+}
+
+void loope_op(VirtualCPU* cpu, int counter_reg, int target_line) {
+    if (!isValidReg(counter_reg)) {
+        fprintf(stderr, "Error LOOPE: Invalid counter register R%d at line %d\n", counter_reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->registers[counter_reg]--;
+
+    if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_ZERO) != 0) {
+        jmp(cpu, target_line);
+    }
+    else {
+    }
+}
+
+void loopne_op(VirtualCPU* cpu, int counter_reg, int target_line) {
+    if (!isValidReg(counter_reg)) {
+        fprintf(stderr, "Error LOOPNE: Invalid counter register R%d at line %d\n", counter_reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->registers[counter_reg]--;
+
+    if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_ZERO) == 0) {
+        jmp(cpu, target_line);
+    }
+    else {
     }
 }
 
@@ -1817,6 +1891,19 @@ void popf_op(VirtualCPU* cpu) {
 
     cpu->flags = cpu->memory[sp];
     cpu->registers[15] = sp + 1;
+}
+
+void setf_op(VirtualCPU* cpu, int flag_mask) {
+    cpu->flags |= flag_mask;
+}
+
+void clrf_op(VirtualCPU* cpu, int flag_mask) {
+    if (flag_mask == 0) {
+        cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS);
+    }
+    else {
+        cpu->flags &= ~flag_mask;
+    }
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

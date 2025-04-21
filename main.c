@@ -361,6 +361,7 @@ typedef struct {
     int memory[MEMORY_SIZE];
     int ip;
     int flags;
+    int sp;
 
     SDL_AudioSpec audioSpec;
     SDL_AudioDeviceID audioDevice;
@@ -568,7 +569,7 @@ bool init_cpu(VirtualCPU* cpu) {
     memset(cpu->memory, 0, sizeof(cpu->memory));
     cpu->ip = 0;
     cpu->flags = 0;
-    cpu->registers[15] = MEMORY_SIZE;
+    cpu->sp = MEMORY_SIZE;
     cpu->shutdown_requested = false;
 
     cpu->audioDevice = 0;
@@ -1493,7 +1494,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
             (cpu->flags & FLAG_GREATER) ? 1 : 0,
             (cpu->flags & FLAG_LESS) ? 1 : 0,
             (cpu->flags & FLAG_OVERFLOW) ? 1 : 0);
-        printf(" SP (R15): %d (0x%X)\n", cpu->registers[15], cpu->registers[15]);
+        printf(" SP: %d (0x%X)\n", cpu->sp, cpu->sp);
         printf("---------------------\n");
         break;
 
@@ -3114,11 +3115,11 @@ void clr(VirtualCPU* cpu, int reg1) {
 
 void push(VirtualCPU* cpu, int reg1) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error PUSH: Invalid register R%d\n", reg1); return; }
-    int sp = cpu->registers[15];
+    int sp = cpu->sp;
     sp--;
     if (sp < 0) {
         fprintf(stderr, "Error: Stack Overflow during PUSH at line %d\n", cpu->ip + 1);
-        cpu->registers[15] = 0;
+        cpu->sp = 0;
         return;
     }
     if (!isValidMem(sp)) {
@@ -3127,15 +3128,15 @@ void push(VirtualCPU* cpu, int reg1) {
     }
 
     cpu->memory[sp] = cpu->registers[reg1];
-    cpu->registers[15] = sp;
+    cpu->sp = sp;
 }
 
 void pop(VirtualCPU* cpu, int reg1) {
     if (!isValidReg(reg1)) { fprintf(stderr, "Error POP: Invalid register R%d\n", reg1); return; }
-    int sp = cpu->registers[15];
+    int sp = cpu->sp;
     if (sp >= MEMORY_SIZE) {
         fprintf(stderr, "Error: Stack Underflow during POP at line %d (SP=%d)\n", cpu->ip + 1, sp);
-        cpu->registers[15] = MEMORY_SIZE;
+        cpu->sp = MEMORY_SIZE;
         return;
     }
     if (!isValidMem(sp)) {
@@ -3144,7 +3145,7 @@ void pop(VirtualCPU* cpu, int reg1) {
     }
 
     cpu->registers[reg1] = cpu->memory[sp];
-    cpu->registers[15] = sp + 1;
+    cpu->sp = sp + 1;
 }
 
 void call(VirtualCPU* cpu, int line_number) {
@@ -3154,11 +3155,11 @@ void call(VirtualCPU* cpu, int line_number) {
         return;
     }
 
-    int sp = cpu->registers[15];
+    int sp = cpu->sp;
     sp--;
     if (sp < 0) {
         fprintf(stderr, "Error: Stack Overflow during CALL at line %d\n", cpu->ip + 1);
-        cpu->registers[15] = 0;
+        cpu->sp = 0;
         return;
     }
     if (!isValidMem(sp)) {
@@ -3167,16 +3168,16 @@ void call(VirtualCPU* cpu, int line_number) {
     }
 
     cpu->memory[sp] = cpu->ip + 1;
-    cpu->registers[15] = sp;
+    cpu->sp = sp;
 
     cpu->ip = target_ip;
 }
 
 void ret(VirtualCPU* cpu) {
-    int sp = cpu->registers[15];
+    int sp = cpu->sp;
     if (sp >= MEMORY_SIZE) {
         fprintf(stderr, "Error: Stack Underflow during RET at line %d (SP=%d)\n", cpu->ip + 1, sp);
-        cpu->registers[15] = MEMORY_SIZE;
+        cpu->sp = MEMORY_SIZE;
         return;
     }
     if (!isValidMem(sp)) {
@@ -3185,7 +3186,7 @@ void ret(VirtualCPU* cpu) {
     }
 
     int return_ip = cpu->memory[sp];
-    cpu->registers[15] = sp + 1;
+    cpu->sp = sp + 1;
 
     if (return_ip >= 0) {
         cpu->ip = return_ip;
@@ -3303,12 +3304,12 @@ void lea_op(VirtualCPU* cpu, int dest_reg, int base_reg, int offset) {
 }
 
 void pushf_op(VirtualCPU* cpu) {
-    int sp = cpu->registers[15];
+    int sp = cpu->sp;
     sp--;
 
     if (sp < 0) {
         fprintf(stderr, "Error: Stack Overflow during PUSHF at line %d\n", cpu->ip + 1);
-        cpu->registers[15] = 0;
+        cpu->sp = 0;
         return;
     }
     if (!isValidMem(sp)) {
@@ -3317,15 +3318,15 @@ void pushf_op(VirtualCPU* cpu) {
     }
 
     cpu->memory[sp] = cpu->flags;
-    cpu->registers[15] = sp;
+    cpu->sp = sp;
 }
 
 void popf_op(VirtualCPU* cpu) {
-    int sp = cpu->registers[15];
+    int sp = cpu->sp;
 
     if (sp >= MEMORY_SIZE) {
         fprintf(stderr, "Error: Stack Underflow during POPF at line %d (SP=%d)\n", cpu->ip + 1, sp);
-        cpu->registers[15] = MEMORY_SIZE;
+        cpu->sp = MEMORY_SIZE;
         return;
     }
     if (!isValidMem(sp)) {
@@ -3334,7 +3335,7 @@ void popf_op(VirtualCPU* cpu) {
     }
 
     cpu->flags = cpu->memory[sp];
-    cpu->registers[15] = sp + 1;
+    cpu->sp = sp + 1;
 }
 
 void setf_op(VirtualCPU* cpu, int flag_mask) {

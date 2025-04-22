@@ -327,13 +327,14 @@ typedef struct {
 // Graphics Output / Control
 #define INT_DRAW_PIXEL      0x10 // Draw pixel at (R0, R1) with palette color index R2
 #define INT_CLEAR_GFX_SCREEN 0x11 // Clear graphics screen with palette color index R0
-#define INT_SCREEN_ON       0x12 // Enable graphics screen updates
-#define INT_SCREEN_OFF      0x13 // Disable graphics screen updates
+#define INT_SCREEN_ON       0x12 // Enable automatic graphics screen updates
+#define INT_SCREEN_OFF      0x13 // Disable automatic graphics screen updates
 #define INT_SET_RESOLUTION  0x14 // Change screen resolution to R0 x R1
 #define INT_GET_PIXEL       0x15 // Get pixel color index at (R0, R1) into R0 (-1 if invalid)
 #define INT_DRAW_STRING_GFX 0x16 // Draw string (R0=X, R1=Y, R2=StrAddr, R3=ColorIdx)
 #define INT_BLIT            0x17 // Blit from Mem (R0=DX, R1=DY, R2=SrcAddr, R3=SW, R4=SH)
 #define INT_GET_SCREEN_SIZE 0x18 // Get current GFX screen dimensions (R0=Width, R1=Height)
+#define INT_UPDATE_GFX_SCREEN 0x19 // Manually update the screen with current pixel buffer contents
 
 // Audio Control
 #define INT_SPEAKER_ON      0x20 // Turn the virtual speaker on
@@ -1197,7 +1198,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
 
 
 void updateScreen(VirtualCPU* cpu) {
-    if (!cpu || !cpu->screen_on || !cpu->texture || !cpu->renderer || !cpu->pixels) {
+    if (!cpu || !cpu->texture || !cpu->renderer || !cpu->pixels) {
         return;
     }
     if (SDL_UpdateTexture(cpu->texture, NULL, cpu->pixels, cpu->screen_width * sizeof(Uint32)) != 0) {
@@ -1523,6 +1524,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         break;
     case INT_SCREEN_OFF: // 0x13
         if (cpu->screen_on == 1) {
+            updateScreen(cpu);
         }
         cpu->screen_on = 0;
         break;
@@ -1729,6 +1731,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         cpu->registers[height_reg] = cpu->screen_height;
     }
     break;
+    case INT_UPDATE_GFX_SCREEN: // 0x19
+        updateScreen(cpu);
+        break;
 
     case INT_SPEAKER_ON: // 0x20
         SDL_LockAudioDevice(cpu->audioDevice);

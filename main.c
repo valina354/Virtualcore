@@ -3799,10 +3799,7 @@ void audioCallback(void* userdata, Uint8* stream, int len) {
 }
 
 
-int main(int argc, char* argv[]) {
-    (void)argc;
-    (void)argv;
-
+int main(void) {
     char* program[MAX_PROGRAM_SIZE];
     char filename[256];
     int program_size = 0;

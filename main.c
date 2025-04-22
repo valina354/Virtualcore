@@ -275,7 +275,7 @@ static const unsigned char vga_font_8x16[256][16] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}  // 255 Non-breaking space (same as space)
 };
 
-#define CPU_VERSION 2
+#define CPU_VERSION 3
 #define MEMORY_SIZE (1024 * 1024)
 #define NUM_REGISTERS 32
 #define MAX_PROGRAM_SIZE 65536
@@ -306,49 +306,66 @@ typedef struct {
 #define FLAG_LESS   0x04
 #define FLAG_OVERFLOW 0x08
 
+//Null
+#define INT_NOP             0x00 // No operation
+
+// Console Input/Output
 #define INT_PRINT_REG0      0x01 // Print integer in R0
 #define INT_PRINT_STRING    0x02 // Print string from memory address in R0 until null terminator
 #define INT_PRINT_NEWLINE   0x03 // Print a newline character
-#define INT_SLEEP_MS        0x04 // Sleep for milliseconds specified in R0
-#define INT_GET_CHAR        0x05 // Keyboard input, reads a character into R0
-#define INT_RESET_CPU       0x06 // Full CPU reset (state, memory, registers, flags, ip)
-#define INT_GET_TIME        0x07 // Get current time into R0 (H), R1 (M), R2 (S)
-#define INT_CLEAR_SCREEN_OS 0x08 // Clear host OS console screen
-#define INT_SPEAKER_ON      0x09 // Turn the virtual speaker on
-#define INT_SPEAKER_OFF     0x10 // Turn the virtual speaker off
-#define INT_SET_FREQ        0x11 // Set speaker frequency from R0 (Hz)
-#define INT_SET_VOLUME      0x12 // Set speaker volume from R0 (0-100)
-#define INT_SPEAKER_SLEEP   0x13 // Make speaker silent for R0 milliseconds
-#define INT_DRAW_PIXEL      0x14 // Draw pixel at (R0, R1) with palette color index R2
-#define INT_CLEAR_GFX_SCREEN 0x15 // Clear graphics screen with palette color index R0
-#define INT_SCREEN_ON       0x16 // Enable graphics screen updates
-#define INT_SCREEN_OFF      0x17 // Disable graphics screen updates
-#define INT_SET_RESOLUTION  0x18 // Change screen resolution to R0 x R1
-#define INT_GET_STRING      0x19 // Read string input into memory at R0, max length R1
-#define INT_PRINT_HEX_REG0  0x20 // Print R0 as hexadecimal
-#define INT_DUMP_REGISTERS  0x21 // Print all register values, IP, SP, Flags
-#define INT_DUMP_MEMORY     0x22 // Dump memory from R0 for length R1
-#define INT_GET_TICKS       0x23 // Get SDL Ticks (ms since init) into R0
-#define INT_GET_PIXEL       0x24 // Get pixel color index at (R0, R1) into R0 (-1 if invalid)
-#define INT_GET_KEY_STATE   0x25 // Get state of key (SDL_Scancode in R0). R0=1 if pressed, 0 if not.
-#define INT_WAIT_FOR_KEY    0x26 // Waits for a key press, returns SDL_Scancode in R0.
-#define INT_GET_MOUSE_STATE 0x27 // Get mouse state: R0=X, R1=Y, R2=ButtonMask (1=L, 2=M, 4=R)
-#define INT_GET_MEMORY_SIZE 0x28 // Get configured MEMORY_SIZE into R0
-#define INT_SET_CONSOLE_COLOR 0x29 // Set console text color (R0=FG, R1=BG [Win32 codes])
-#define INT_RESET_CONSOLE_COLOR 0x30 // Reset console color to default
-#define INT_GOTOXY          0x31 // Move console cursor (R0=Col, R1=Row [0-based])
-#define INT_GETXY           0x32 // Get console cursor pos (R0=Col, R1=Row) [Win32 only reliable]
-#define INT_GET_CONSOLE_SIZE 0x33 // Get console dimensions (R0=Width, R1=Height)
-#define INT_SET_CONSOLE_TITLE 0x34 // Set console window title (R0=title_addr)
-#define INT_SYSTEM_SHUTDOWN 0x35 // Requests the emulator session to end
-#define INT_GET_DATETIME    0x36 // Get Date/Time (R0=Y, R1=M, R2=D, R3=h, R4=m, R5=s)
-#define INT_DISK_READ       0x37 // Read sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
-#define INT_DISK_WRITE      0x38 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
-#define INT_DISK_INFO       0x39 // Get disk info -> R0=TotalSectors, R1=SectorSize
-#define INT_BREAKPOINT      0x40 // Trigger host debugger breakpoint (if attached and set)
-#define INT_DRAW_STRING_GFX 0x41 // Draw string (R0=X, R1=Y, R2=StrAddr, R3=ColorIdx)
-#define INT_BLIT            0x42 // Blit from Mem (R0=DX, R1=DY, R2=SrcAddr, R3=SW, R4=SH)
-#define INT_GET_SCREEN_SIZE 0x43 // Get current GFX screen dimensions (R0=Width, R1=Height)
+#define INT_GET_CHAR        0x04 // Keyboard input, reads a character into R0
+#define INT_GET_STRING      0x05 // Read string input into memory at R0, max length R1
+#define INT_PRINT_HEX_REG0  0x06 // Print R0 as hexadecimal
+#define INT_CLEAR_SCREEN_OS 0x07 // Clear console screen
+#define INT_SET_CONSOLE_COLOR 0x08 // Set console text color (R0=FG, R1=BG [Win32 codes])
+#define INT_RESET_CONSOLE_COLOR 0x09 // Reset console color to default
+#define INT_GOTOXY          0x0A // Move console cursor (R0=Col, R1=Row [0-based])
+#define INT_GETXY           0x0B // Get console cursor pos (R0=Col, R1=Row) [Win32 only reliable]
+#define INT_GET_CONSOLE_SIZE 0x0C // Get console dimensions (R0=Width, R1=Height)
+#define INT_SET_CONSOLE_TITLE 0x0D // Set console window title (R0=title_addr)
+
+// Graphics Output / Control
+#define INT_DRAW_PIXEL      0x10 // Draw pixel at (R0, R1) with palette color index R2
+#define INT_CLEAR_GFX_SCREEN 0x11 // Clear graphics screen with palette color index R0
+#define INT_SCREEN_ON       0x12 // Enable graphics screen updates
+#define INT_SCREEN_OFF      0x13 // Disable graphics screen updates
+#define INT_SET_RESOLUTION  0x14 // Change screen resolution to R0 x R1
+#define INT_GET_PIXEL       0x15 // Get pixel color index at (R0, R1) into R0 (-1 if invalid)
+#define INT_DRAW_STRING_GFX 0x16 // Draw string (R0=X, R1=Y, R2=StrAddr, R3=ColorIdx)
+#define INT_BLIT            0x17 // Blit from Mem (R0=DX, R1=DY, R2=SrcAddr, R3=SW, R4=SH)
+#define INT_GET_SCREEN_SIZE 0x18 // Get current GFX screen dimensions (R0=Width, R1=Height)
+
+// Audio Control
+#define INT_SPEAKER_ON      0x20 // Turn the virtual speaker on
+#define INT_SPEAKER_OFF     0x21 // Turn the virtual speaker off
+#define INT_SET_FREQ        0x22 // Set speaker frequency from R0 (Hz)
+#define INT_SET_VOLUME      0x23 // Set speaker volume from R0 (0-100)
+#define INT_SPEAKER_SLEEP   0x24 // Make speaker silent for R0 milliseconds
+
+// Time / Date / Sleep
+#define INT_SLEEP_MS        0x30 // Sleep for milliseconds specified in R0
+#define INT_GET_TIME        0x31 // Get current time into R0 (H), R1 (M), R2 (S)
+#define INT_GET_TICKS       0x32 // Get SDL Ticks (ms since init) into R0
+#define INT_GET_DATETIME    0x33 // Get Date/Time (R0=Y, R1=M, R2=D, R3=h, R4=m, R5=s)
+
+// CPU / System / Memory Control
+#define INT_RESET_CPU       0x40 // Full CPU reset (state, memory, registers, flags, ip)
+#define INT_SYSTEM_SHUTDOWN 0x41 // Requests the emulator session to end
+#define INT_GET_MEMORY_SIZE 0x42 // Get configured MEMORY_SIZE into R0
+#define INT_CPUID           0x43 // Get CPU Version into R0 (uses CPUID instruction name for clarity)
+#define INT_BREAKPOINT      0x44 // Trigger host debugger breakpoint (if attached and set)
+#define INT_DUMP_REGISTERS  0x45 // Print all register values, IP, SP, Flags
+#define INT_DUMP_MEMORY     0x46 // Dump memory from R0 for length R1
+
+// Input Device State
+#define INT_GET_KEY_STATE   0x50 // Get state of key (SDL_Scancode in R0). R0=1 if pressed, 0 if not.
+#define INT_WAIT_FOR_KEY    0x51 // Waits for a key press, returns SDL_Scancode in R0.
+#define INT_GET_MOUSE_STATE 0x52 // Get mouse state: R0=X, R1=Y, R2=ButtonMask (1=L, 2=M, 4=R)
+
+// Disk I/O
+#define INT_DISK_READ       0x60 // Read sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
+#define INT_DISK_WRITE      0x61 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
+#define INT_DISK_INFO       0x62 // Get disk info -> R0=TotalSectors, R1=SectorSize
 
 #define MAX_OPEN_FILES 16
 
@@ -1198,14 +1215,14 @@ void updateScreen(VirtualCPU* cpu) {
 
 void interrupt(VirtualCPU* cpu, int interrupt_id) {
     switch (interrupt_id) {
-    case 0x00:
+    case INT_NOP: // 0x00
         nop(cpu);
         break;
-    case INT_PRINT_REG0:
+
+    case INT_PRINT_REG0: // 0x01
         printf("%d\n", cpu->registers[0]);
         break;
-
-    case INT_PRINT_STRING:
+    case INT_PRINT_STRING: // 0x02
     {
         int addr = cpu->registers[0];
         if (addr < 0 || addr >= MEMORY_SIZE) {
@@ -1221,222 +1238,27 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         putchar('\n');
     }
     break;
-
-    case INT_PRINT_NEWLINE:
+    case INT_PRINT_NEWLINE: // 0x03
         putchar('\n');
         break;
-
-    case INT_SLEEP_MS:
-    {
-        int sleep_ms = cpu->registers[0];
-        if (sleep_ms > 0) {
-            SDL_Delay((Uint32)sleep_ms);
-        }
-        else if (sleep_ms < 0) {
-            fprintf(stderr, "Warning (INT 0x04): Negative sleep duration (%d ms). Ignoring.\n", sleep_ms);
-        }
-    }
-    break;
-
-    case INT_GET_CHAR:
+    case INT_GET_CHAR: // 0x04
     {
         int ch = getchar();
         cpu->registers[0] = ch;
     }
     break;
-
-    case INT_RESET_CPU:
-    {
-        int old_w = cpu->screen_width;
-        int old_h = cpu->screen_height;
-        Uint32* old_pixels = cpu->pixels;
-        SDL_Color old_palette[PALETTE_SIZE];
-        memcpy(old_palette, cpu->palette, sizeof(old_palette));
-        int old_screen_on = cpu->screen_on;
-        int old_speaker_on = cpu->speaker_on;
-        double old_freq = cpu->frequency;
-        double old_vol = cpu->volume;
-
-        init_cpu(cpu);
-
-        cpu->screen_width = old_w;
-        cpu->screen_height = old_h;
-        cpu->pixels = old_pixels;
-        memcpy(cpu->palette, old_palette, sizeof(cpu->palette));
-        cpu->screen_on = old_screen_on;
-        cpu->speaker_on = old_speaker_on;
-        cpu->frequency = old_freq;
-        cpu->volume = old_vol;
-
-        fprintf(stdout, "CPU Reset executed.\n");
-    }
-    break;
-
-    case INT_GET_TIME:
-    {
-        time_t timer;
-        struct tm* tm_info;
-        time(&timer);
-        tm_info = localtime(&timer);
-        cpu->registers[0] = tm_info->tm_hour;
-        cpu->registers[1] = tm_info->tm_min;
-        cpu->registers[2] = tm_info->tm_sec;
-    }
-    break;
-
-    case INT_CLEAR_SCREEN_OS:
-#ifdef _WIN32
-        system("cls");
-#else
-        system("clear");
-#endif
-        break;
-
-    case INT_SPEAKER_ON:
-        cpu->speaker_on = 1;
-        cpu->sleep_duration = 0;
-        break;
-
-    case INT_SPEAKER_OFF:
-        cpu->speaker_on = 0;
-        cpu->sleep_duration = 0;
-        cpu->sleep_start_time = 0;
-        break;
-
-    case INT_SET_FREQ:
-        SDL_LockAudioDevice(cpu->audioDevice);
-        cpu->frequency = (double)cpu->registers[0];
-        if (cpu->frequency <= 0) cpu->frequency = 1.0;
-        SDL_UnlockAudioDevice(cpu->audioDevice);
-        break;
-
-    case INT_SET_VOLUME:
-        SDL_LockAudioDevice(cpu->audioDevice);
-        cpu->volume = (double)cpu->registers[0] / 100.0;
-        if (cpu->volume < 0.0) cpu->volume = 0.0;
-        if (cpu->volume > 1.0) cpu->volume = 1.0;
-        SDL_UnlockAudioDevice(cpu->audioDevice);
-        break;
-
-    case INT_SPEAKER_SLEEP:
-        SDL_LockAudioDevice(cpu->audioDevice);
-        cpu->sleep_duration = cpu->registers[0];
-        cpu->sleep_start_time = SDL_GetTicks();
-        SDL_UnlockAudioDevice(cpu->audioDevice);
-        break;
-
-    case INT_DRAW_PIXEL:
-    {
-        int x = cpu->registers[0];
-        int y = cpu->registers[1];
-        int color_index = cpu->registers[2];
-
-        if (!cpu->pixels) break;
-
-        if (x >= 0 && x < cpu->screen_width && y >= 0 && y < cpu->screen_height &&
-            color_index >= 0 && color_index < PALETTE_SIZE)
-        {
-            SDL_Color palette_color = cpu->palette[color_index];
-            Uint32 color = ((Uint32)palette_color.a << 24) |
-                ((Uint32)palette_color.r << 16) |
-                ((Uint32)palette_color.g << 8) |
-                ((Uint32)palette_color.b);
-            cpu->pixels[y * cpu->screen_width + x] = color;
-        }
-        if (cpu->screen_on == 1) {
-            updateScreen(cpu);
-        }
-    }
-    break;
-
-    case INT_CLEAR_GFX_SCREEN:
-    {
-        int color_index = cpu->registers[0];
-        if (!cpu->pixels) break;
-
-        if (color_index >= 0 && color_index < PALETTE_SIZE) {
-            SDL_Color palette_color = cpu->palette[color_index];
-            Uint32 clear_color = ((Uint32)palette_color.a << 24) |
-                ((Uint32)palette_color.r << 16) |
-                ((Uint32)palette_color.g << 8) |
-                ((Uint32)palette_color.b);
-            for (int i = 0; i < cpu->screen_width * cpu->screen_height; i++) {
-                cpu->pixels[i] = clear_color;
-            }
-        }
-        if (cpu->screen_on == 1) {
-            updateScreen(cpu);
-        }
-    }
-    break;
-
-    case INT_SCREEN_ON:
-        cpu->screen_on = 1;
-        if (cpu->screen_on == 1) {
-            updateScreen(cpu);
-        }
-        break;
-
-    case INT_SCREEN_OFF:
-        if (cpu->screen_on == 1) {
-            updateScreen(cpu);
-        }
-        cpu->screen_on = 0;
-        break;
-
-    case INT_SET_RESOLUTION:
-    {
-        int new_width = cpu->registers[0];
-        int new_height = cpu->registers[1];
-
-        if (new_width > 0 && new_height > 0 &&
-            new_width <= MAX_SCREEN_DIM && new_height <= MAX_SCREEN_DIM &&
-            (new_width != cpu->screen_width || new_height != cpu->screen_height))
-        {
-            fprintf(stdout, "Attempting to change resolution to %dx%d\n", new_width, new_height);
-
-            Uint32* new_pixels = (Uint32*)realloc(cpu->pixels, new_width * new_height * sizeof(Uint32));
-            if (!new_pixels) {
-                fprintf(stderr, "Error (INT 0x18): Failed to reallocate pixel buffer for new resolution.\n");
-                break;
-            }
-            cpu->pixels = new_pixels;
-            cpu->screen_width = new_width;
-            cpu->screen_height = new_height;
-            memset(cpu->pixels, 0, cpu->screen_width * cpu->screen_height * sizeof(Uint32));
-
-
-            SDL_DestroyTexture(cpu->texture);
-            cpu->texture = SDL_CreateTexture(cpu->renderer, SDL_PIXELFORMAT_ARGB8888,
-                SDL_TEXTUREACCESS_STREAMING,
-                cpu->screen_width, cpu->screen_height);
-            if (!cpu->texture) {
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateTexture Error (resolution change): %s", SDL_GetError());
-            }
-
-            SDL_SetWindowSize(cpu->window, cpu->screen_width, cpu->screen_height);
-        }
-        else if (new_width <= 0 || new_height <= 0 || new_width > MAX_SCREEN_DIM || new_height > MAX_SCREEN_DIM) {
-            fprintf(stderr, "Warning (INT 0x18): Invalid screen resolution requested: %dx%d. Max is %dx%d.\n",
-                new_width, new_height, MAX_SCREEN_DIM, MAX_SCREEN_DIM);
-        }
-        if (cpu->screen_on == 1) {
-            updateScreen(cpu);
-        }
-    }
-    break;
-    case INT_GET_STRING:
+    case INT_GET_STRING: // 0x05
     {
         int buffer_addr = cpu->registers[0];
         int max_length = cpu->registers[1];
         char input_buffer[MAX_LINE_LENGTH];
 
         if (buffer_addr < 0 || buffer_addr >= MEMORY_SIZE) {
-            fprintf(stderr, "Error (INT 0x19): Invalid buffer address in R0: %d\n", buffer_addr);
+            fprintf(stderr, "Error (INT 0x05): Invalid buffer address in R0: %d\n", buffer_addr);
             break;
         }
         if (max_length <= 0) {
-            fprintf(stderr, "Warning (INT 0x19): Invalid max length in R1: %d. Reading nothing.\n", max_length);
+            fprintf(stderr, "Warning (INT 0x05): Invalid max length in R1: %d. Reading nothing.\n", max_length);
             if (buffer_addr < MEMORY_SIZE) cpu->memory[buffer_addr] = 0;
             break;
         }
@@ -1446,7 +1268,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         if (buffer_addr + max_length >= MEMORY_SIZE) {
             max_length = MEMORY_SIZE - buffer_addr - 1;
             if (max_length <= 0) {
-                fprintf(stderr, "Error (INT 0x19): Buffer address and length exceed memory bounds.\n");
+                fprintf(stderr, "Error (INT 0x05): Buffer address and length exceed memory bounds.\n");
                 if (buffer_addr < MEMORY_SIZE) cpu->memory[buffer_addr] = 0;
                 break;
             }
@@ -1473,61 +1295,281 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
             }
         }
         else {
-            fprintf(stderr, "Error reading input for INT 0x19.\n");
+            fprintf(stderr, "Error reading input for INT 0x05.\n");
             if (buffer_addr < MEMORY_SIZE) cpu->memory[buffer_addr] = 0;
         }
     }
     break;
-
-    case INT_PRINT_HEX_REG0:
+    case INT_PRINT_HEX_REG0: // 0x06
         printf("0x%X\n", cpu->registers[0]);
         break;
-
-    case INT_DUMP_REGISTERS:
-        printf("--- Register Dump ---\n");
-        for (int i = 0; i < NUM_REGISTERS; i++) {
-            printf(" R%d: %d (0x%X)\n", i, cpu->registers[i], cpu->registers[i]);
-        }
-        printf(" IP: %d\n", cpu->ip);
-        printf(" Flags: 0x%X (Z:%d G:%d L:%d O:%d)\n", cpu->flags,
-            (cpu->flags & FLAG_ZERO) ? 1 : 0,
-            (cpu->flags & FLAG_GREATER) ? 1 : 0,
-            (cpu->flags & FLAG_LESS) ? 1 : 0,
-            (cpu->flags & FLAG_OVERFLOW) ? 1 : 0);
-        printf(" SP: %d (0x%X)\n", cpu->sp, cpu->sp);
-        printf("---------------------\n");
+    case INT_CLEAR_SCREEN_OS: // 0x07
+#ifdef _WIN32
+        system("cls");
+#else
+        system("clear");
+#endif
         break;
-
-    case INT_DUMP_MEMORY:
+    case INT_SET_CONSOLE_COLOR: // 0x08
     {
-        int addr = cpu->registers[0];
-        int length = cpu->registers[1];
-        if (addr < 0) addr = 0;
-        if (length <= 0) length = 16;
-        if (addr + length > MEMORY_SIZE) length = MEMORY_SIZE - addr;
+        int fg_color = cpu->registers[0];
+        int bg_color = cpu->registers[1];
 
-        printf("--- Memory Dump Addr: 0x%X, Len: %d ---\n", addr, length);
-        for (int i = 0; i < length; i++) {
-            if (i % 16 == 0) {
-                printf("%04X: ", addr + i);
-            }
-            printf("%02X ", cpu->memory[addr + i] & 0xFF);
-            if ((i + 1) % 16 == 0 || i == length - 1) {
-                printf("\n");
-            }
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hConsole != INVALID_HANDLE_VALUE) {
+            fg_color &= 0x0F;
+            bg_color &= 0x0F;
+            WORD attribute = (WORD)((bg_color << 4) | fg_color);
+            SetConsoleTextAttribute(hConsole, attribute);
         }
-        printf("---------------------------------------\n");
+        else {
+            fprintf(stderr, "Warning (INT 0x08): Could not get console handle (Win32).\n");
+        }
+#else
+        int ansi_fg, ansi_bg;
+        if (fg_color >= 0 && fg_color <= 7) ansi_fg = 30 + fg_color;
+        else if (fg_color >= 8 && fg_color <= 15) ansi_fg = 90 + (fg_color - 8);
+        else ansi_fg = 39;
+
+        if (bg_color >= 0 && bg_color <= 7) ansi_bg = 40 + bg_color;
+        else if (bg_color >= 8 && bg_color <= 15) ansi_bg = 100 + (bg_color - 8);
+        else ansi_bg = 49;
+
+        printf("\033[%d;%dm", ansi_fg, ansi_bg);
+        fflush(stdout);
+#endif
+    }
+    break;
+    case INT_RESET_CONSOLE_COLOR: // 0x09
+    {
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+        WORD saved_attributes = 7;
+        if (GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
+            saved_attributes = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+        }
+        if (hConsole != INVALID_HANDLE_VALUE) {
+            SetConsoleTextAttribute(hConsole, saved_attributes);
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x09): Could not get console handle (Win32).\n");
+        }
+#else
+        printf("\033[0m");
+        fflush(stdout);
+#endif
+    }
+    break;
+    case INT_GOTOXY: // 0x0A
+    {
+        int col = cpu->registers[0];
+        int row = cpu->registers[1];
+
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hConsole != INVALID_HANDLE_VALUE) {
+            COORD coord = { (SHORT)col, (SHORT)row };
+            if (coord.X < 0) coord.X = 0;
+            if (coord.Y < 0) coord.Y = 0;
+            SetConsoleCursorPosition(hConsole, coord);
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x0A): Could not get console handle (Win32).\n");
+        }
+#else
+        printf("\033[%d;%dH", row + 1, col + 1);
+        fflush(stdout);
+#endif
+    }
+    break;
+    case INT_GETXY: // 0x0B
+    {
+        int col_reg = 0;
+        int row_reg = 1;
+
+        cpu->registers[col_reg] = -1;
+        cpu->registers[row_reg] = -1;
+
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+        if (hConsole != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
+            cpu->registers[col_reg] = consoleInfo.dwCursorPosition.X;
+            cpu->registers[row_reg] = consoleInfo.dwCursorPosition.Y;
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x0B): Failed to get console buffer info (Win32).\n");
+        }
+#else
+        fprintf(stderr, "Warning (INT 0x0B): INT_GETXY is not reliably implemented on non-Windows platforms.\n");
+#endif
+    }
+    break;
+    case INT_GET_CONSOLE_SIZE: // 0x0C
+    {
+        int width_reg = 0;
+        int height_reg = 1;
+
+        cpu->registers[width_reg] = -1;
+        cpu->registers[height_reg] = -1;
+
+#ifdef _WIN32
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
+        if (hConsole != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
+            cpu->registers[width_reg] = consoleInfo.srWindow.Right - consoleInfo.srWindow.Left + 1;
+            cpu->registers[height_reg] = consoleInfo.srWindow.Bottom - consoleInfo.srWindow.Top + 1;
+        }
+        else {
+            fprintf(stderr, "Warning (INT 0x0C): Failed to get console buffer info (Win32).\n");
+        }
+#else
+        struct winsize ws;
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) {
+            cpu->registers[width_reg] = ws.ws_col;
+            cpu->registers[height_reg] = ws.ws_row;
+        }
+        else {
+            perror("ioctl TIOCGWINSZ");
+            fprintf(stderr, "Warning (INT 0x0C): Failed to get console size (ioctl).\n");
+        }
+#endif
+    }
+    break;
+    case INT_SET_CONSOLE_TITLE: // 0x0D
+    {
+        int title_addr_reg = 0;
+        int title_addr = cpu->registers[title_addr_reg];
+
+        if (!isValidMem(title_addr)) {
+            fprintf(stderr, "Error (INT 0x0D): Invalid memory address for title string (0x%X).\n", title_addr);
+            break;
+        }
+
+        char title_buf[256];
+        int idx = 0;
+        while (isValidMem(title_addr + idx) && idx < sizeof(title_buf) - 1) {
+            char c = (char)cpu->memory[title_addr + idx];
+            title_buf[idx] = c;
+            if (c == 0) break;
+            idx++;
+        }
+        title_buf[idx] = 0;
+
+        if (idx == sizeof(title_buf) - 1 && title_buf[idx] != 0) {
+            fprintf(stderr, "Warning (INT 0x0D): Title string too long or not null-terminated.\n");
+        }
+
+#ifdef _WIN32
+        if (!SetConsoleTitle(title_buf)) {
+            fprintf(stderr, "Warning (INT 0x0D): SetConsoleTitle failed (Win32).\n");
+        }
+#else
+        printf("\033]0;%s\007", title_buf);
+        fflush(stdout);
+#endif
     }
     break;
 
-    case INT_GET_TICKS:
-        cpu->registers[0] = SDL_GetTicks();
-        break;
-
-    case INT_GET_PIXEL:
+    case INT_DRAW_PIXEL: // 0x10
     {
+        int x = cpu->registers[0];
+        int y = cpu->registers[1];
+        int color_index = cpu->registers[2];
+
+        if (!cpu->pixels) break;
+
+        if (x >= 0 && x < cpu->screen_width && y >= 0 && y < cpu->screen_height &&
+            color_index >= 0 && color_index < PALETTE_SIZE)
+        {
+            SDL_Color palette_color = cpu->palette[color_index];
+            Uint32 color = ((Uint32)palette_color.a << 24) |
+                ((Uint32)palette_color.r << 16) |
+                ((Uint32)palette_color.g << 8) |
+                ((Uint32)palette_color.b);
+            cpu->pixels[y * cpu->screen_width + x] = color;
+        }
         if (cpu->screen_on == 1) {
             updateScreen(cpu);
+        }
+    }
+    break;
+    case INT_CLEAR_GFX_SCREEN: // 0x11
+    {
+        int color_index = cpu->registers[0];
+        if (!cpu->pixels) break;
+
+        if (color_index >= 0 && color_index < PALETTE_SIZE) {
+            SDL_Color palette_color = cpu->palette[color_index];
+            Uint32 clear_color = ((Uint32)palette_color.a << 24) |
+                ((Uint32)palette_color.r << 16) |
+                ((Uint32)palette_color.g << 8) |
+                ((Uint32)palette_color.b);
+            for (int i = 0; i < cpu->screen_width * cpu->screen_height; i++) {
+                cpu->pixels[i] = clear_color;
+            }
+        }
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+    }
+    break;
+    case INT_SCREEN_ON: // 0x12
+        cpu->screen_on = 1;
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+    case INT_SCREEN_OFF: // 0x13
+        if (cpu->screen_on == 1) {
+        }
+        cpu->screen_on = 0;
+        break;
+    case INT_SET_RESOLUTION: // 0x14
+    {
+        int new_width = cpu->registers[0];
+        int new_height = cpu->registers[1];
+
+        if (new_width > 0 && new_height > 0 &&
+            new_width <= MAX_SCREEN_DIM && new_height <= MAX_SCREEN_DIM &&
+            (new_width != cpu->screen_width || new_height != cpu->screen_height))
+        {
+            fprintf(stdout, "Attempting to change resolution to %dx%d\n", new_width, new_height);
+
+            Uint32* new_pixels = (Uint32*)realloc(cpu->pixels, new_width * new_height * sizeof(Uint32));
+            if (!new_pixels) {
+                fprintf(stderr, "Error (INT 0x14): Failed to reallocate pixel buffer for new resolution.\n");
+                break;
+            }
+            cpu->pixels = new_pixels;
+            cpu->screen_width = new_width;
+            cpu->screen_height = new_height;
+            memset(cpu->pixels, 0, cpu->screen_width * cpu->screen_height * sizeof(Uint32));
+
+            SDL_DestroyTexture(cpu->texture);
+            cpu->texture = SDL_CreateTexture(cpu->renderer, SDL_PIXELFORMAT_ARGB8888,
+                SDL_TEXTUREACCESS_STREAMING,
+                cpu->screen_width, cpu->screen_height);
+            if (!cpu->texture) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL_CreateTexture Error (resolution change): %s", SDL_GetError());
+            }
+
+            SDL_SetWindowSize(cpu->window, cpu->screen_width, cpu->screen_height);
+        }
+        else if (new_width <= 0 || new_height <= 0 || new_width > MAX_SCREEN_DIM || new_height > MAX_SCREEN_DIM) {
+            fprintf(stderr, "Warning (INT 0x14): Invalid screen resolution requested: %dx%d. Max is %dx%d.\n",
+                new_width, new_height, MAX_SCREEN_DIM, MAX_SCREEN_DIM);
+        }
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+    }
+    break;
+    case INT_GET_PIXEL: // 0x15
+    {
+        if (cpu->screen_on == 1) {
         }
         int x = cpu->registers[0];
         int y = cpu->registers[1];
@@ -1536,7 +1578,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         cpu->registers[result_reg] = -1;
 
         if (!cpu->pixels) {
-            fprintf(stderr, "Error (INT 0x24): Pixel buffer not initialized.\n");
+            fprintf(stderr, "Error (INT 0x15): Pixel buffer not initialized.\n");
             break;
         }
 
@@ -1555,480 +1597,10 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
             }
         }
         else {
-            fprintf(stderr, "Warning (INT 0x24): Coordinates (%d, %d) out of bounds (%dx%d).\n", x, y, cpu->screen_width, cpu->screen_height);
         }
     }
     break;
-
-    case INT_GET_KEY_STATE:
-    {
-        int scancode_reg = 0;
-        int result_reg = 0;
-        SDL_Scancode scancode = (SDL_Scancode)cpu->registers[scancode_reg];
-
-        SDL_PumpEvents();
-
-        const Uint8* keystate = SDL_GetKeyboardState(NULL);
-
-        if (keystate == NULL) {
-            fprintf(stderr, "Error (INT 0x25): SDL_GetKeyboardState returned NULL.\n");
-            cpu->registers[result_reg] = 0;
-            break;
-        }
-
-        if (scancode >= 0 && scancode < SDL_NUM_SCANCODES) {
-            cpu->registers[result_reg] = keystate[scancode] ? 1 : 0;
-        }
-        else {
-            cpu->registers[result_reg] = 0;
-        }
-    }
-    break;
-
-    case INT_WAIT_FOR_KEY:
-    {
-        int result_reg = 0;
-        SDL_Event event;
-        bool key_pressed = false;
-
-        while (!key_pressed) {
-            if (SDL_WaitEventTimeout(&event, 10)) {
-                if (event.type == SDL_QUIT) {
-                    fprintf(stdout, "SDL_QUIT received during INT 0x26.\n");
-                    cpu->registers[result_reg] = -1;
-                    key_pressed = true;
-                }
-                else if (event.type == SDL_KEYDOWN) {
-                    cpu->registers[result_reg] = event.key.keysym.scancode;
-                    key_pressed = true;
-                }
-            }
-        }
-    }
-    break;
-
-    case INT_GET_MOUSE_STATE:
-    {
-        int x_reg = 0;
-        int y_reg = 1;
-        int button_reg = 2;
-        int mouse_x, mouse_y;
-
-        SDL_PumpEvents();
-
-        Uint32 button_state = SDL_GetMouseState(&mouse_x, &mouse_y);
-
-        cpu->registers[x_reg] = mouse_x;
-        cpu->registers[y_reg] = mouse_y;
-
-        int button_mask = 0;
-        if (button_state & SDL_BUTTON(SDL_BUTTON_LEFT))   button_mask |= 1;
-        if (button_state & SDL_BUTTON(SDL_BUTTON_MIDDLE)) button_mask |= 2;
-        if (button_state & SDL_BUTTON(SDL_BUTTON_RIGHT))  button_mask |= 4;
-
-        cpu->registers[button_reg] = button_mask;
-    }
-    break;
-
-    case INT_GET_MEMORY_SIZE:
-    {
-        cpu->registers[0] = MEMORY_SIZE;
-    }
-    break;
-    case INT_SET_CONSOLE_COLOR:
-    {
-        int fg_color = cpu->registers[0];
-        int bg_color = cpu->registers[1];
-
-#ifdef _WIN32
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        if (hConsole != INVALID_HANDLE_VALUE) {
-            fg_color &= 0x0F;
-            bg_color &= 0x0F;
-            WORD attribute = (WORD)((bg_color << 4) | fg_color);
-            SetConsoleTextAttribute(hConsole, attribute);
-        }
-        else {
-            fprintf(stderr, "Warning (INT 0x2F): Could not get console handle (Win32).\n");
-        }
-#else // POSIX/ANSI
-        int ansi_fg, ansi_bg;
-        if (fg_color >= 0 && fg_color <= 7) ansi_fg = 30 + fg_color;
-        else if (fg_color >= 8 && fg_color <= 15) ansi_fg = 90 + (fg_color - 8);
-        else ansi_fg = 39;
-
-        if (bg_color >= 0 && bg_color <= 7) ansi_bg = 40 + bg_color;
-        else if (bg_color >= 8 && bg_color <= 15) ansi_bg = 100 + (bg_color - 8);
-        else ansi_bg = 49; 
-
-        printf("\033[%d;%dm", ansi_fg, ansi_bg);
-        fflush(stdout);
-#endif
-    }
-    break;
-
-    case INT_RESET_CONSOLE_COLOR:
-    {
-#ifdef _WIN32
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-        WORD saved_attributes = 7;
-        if (GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
-            saved_attributes = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-        }
-        if (hConsole != INVALID_HANDLE_VALUE) {
-            SetConsoleTextAttribute(hConsole, saved_attributes);
-        }
-        else {
-            fprintf(stderr, "Warning (INT 0x30): Could not get console handle (Win32).\n");
-        }
-#else // POSIX/ANSI
-        printf("\033[0m");
-        fflush(stdout);
-#endif
-    }
-    break;
-
-    case INT_GOTOXY:
-    {
-        int col = cpu->registers[0];
-        int row = cpu->registers[1];
-
-#ifdef _WIN32
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        if (hConsole != INVALID_HANDLE_VALUE) {
-            COORD coord = { (SHORT)col, (SHORT)row };
-            if (coord.X < 0) coord.X = 0;
-            if (coord.Y < 0) coord.Y = 0;
-            SetConsoleCursorPosition(hConsole, coord);
-        }
-        else {
-            fprintf(stderr, "Warning (INT 0x31): Could not get console handle (Win32).\n");
-        }
-#else // POSIX/ANSI
-        printf("\033[%d;%dH", row + 1, col + 1);
-        fflush(stdout);
-#endif
-    }
-    break;
-
-    case INT_GETXY:
-    {
-        int col_reg = 0;
-        int row_reg = 1;
-
-        cpu->registers[col_reg] = -1;
-        cpu->registers[row_reg] = -1;
-
-#ifdef _WIN32
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-        if (hConsole != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
-            cpu->registers[col_reg] = consoleInfo.dwCursorPosition.X;
-            cpu->registers[row_reg] = consoleInfo.dwCursorPosition.Y;
-        }
-        else {
-            fprintf(stderr, "Warning (INT 0x32): Failed to get console buffer info (Win32).\n");
-        }
-#else // POSIX/ANSI
-        fprintf(stderr, "Warning (INT 0x32): INT_GETXY is not reliably implemented on non-Windows platforms.\n");
-#endif
-    }
-    break;
-
-    case INT_GET_CONSOLE_SIZE:
-    {
-        int width_reg = 0;
-        int height_reg = 1;
-
-        cpu->registers[width_reg] = -1;
-        cpu->registers[height_reg] = -1;
-
-#ifdef _WIN32
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        CONSOLE_SCREEN_BUFFER_INFO consoleInfo;
-        if (hConsole != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hConsole, &consoleInfo)) {
-            cpu->registers[width_reg] = consoleInfo.srWindow.Right - consoleInfo.srWindow.Left + 1;
-            cpu->registers[height_reg] = consoleInfo.srWindow.Bottom - consoleInfo.srWindow.Top + 1;
-        }
-        else {
-            fprintf(stderr, "Warning (INT 0x33): Failed to get console buffer info (Win32).\n");
-        }
-#else // POSIX
-        struct winsize ws;
-        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0) {
-            cpu->registers[width_reg] = ws.ws_col;
-            cpu->registers[height_reg] = ws.ws_row;
-        }
-        else {
-            perror("ioctl TIOCGWINSZ");
-            fprintf(stderr, "Warning (INT 0x33): Failed to get console size (ioctl).\n");
-        }
-#endif
-    }
-    break;
-
-    case INT_SET_CONSOLE_TITLE:
-    {
-        int title_addr_reg = 0;
-        int title_addr = cpu->registers[title_addr_reg];
-
-        if (!isValidMem(title_addr)) {
-            fprintf(stderr, "Error (INT 0x34): Invalid memory address for title string (0x%X).\n", title_addr);
-            break;
-        }
-
-        char title_buf[256];
-        int idx = 0;
-        while (isValidMem(title_addr + idx) && idx < sizeof(title_buf) - 1) {
-            char c = (char)cpu->memory[title_addr + idx];
-            title_buf[idx] = c;
-            if (c == 0) break;
-            idx++;
-        }
-        title_buf[idx] = 0;
-
-        if (idx == sizeof(title_buf) - 1 && title_buf[idx] != 0) {
-            fprintf(stderr, "Warning (INT 0x34): Title string too long or not null-terminated.\n");
-        }
-
-#ifdef _WIN32
-        if (!SetConsoleTitle(title_buf)) {
-            fprintf(stderr, "Warning (INT 0x34): SetConsoleTitle failed (Win32).\n");
-        }
-#else // POSIX/ANSI
-        printf("\033]0;%s\007", title_buf);
-        fflush(stdout);
-#endif
-    }
-    break;
-
-    case INT_SYSTEM_SHUTDOWN:
-        cpu->shutdown_requested = true;
-        exit(0);
-        break;
-
-    case INT_GET_DATETIME:
-    {
-        time_t timer;
-        struct tm* tm_info;
-        time(&timer);
-        tm_info = localtime(&timer);
-
-        cpu->registers[0] = tm_info->tm_year + 1900;
-        cpu->registers[1] = tm_info->tm_mon + 1;
-        cpu->registers[2] = tm_info->tm_mday;
-        cpu->registers[3] = tm_info->tm_hour;
-        cpu->registers[4] = tm_info->tm_min;
-        cpu->registers[5] = tm_info->tm_sec;
-    }
-    break;
-
-    case INT_DISK_READ:
-    {
-        int sector_num_reg = 0;
-        int mem_addr_reg = 1;
-        int num_sectors_reg = 2;
-        int status_reg = 0;
-
-        int sector_num = cpu->registers[sector_num_reg];
-        int mem_addr = cpu->registers[mem_addr_reg];
-        int num_sectors = cpu->registers[num_sectors_reg];
-        int status = 0;
-
-        if (!cpu->disk_image_fp) {
-            fprintf(stderr, "Error (INT 0x37): Disk image not open.\n");
-            status = 3;
-            goto disk_read_end;
-        }
-        if (num_sectors <= 0) {
-            status = 0;
-            goto disk_read_end;
-        }
-
-        long long max_sector = (cpu->disk_image_size / cpu->disk_sector_size) - 1;
-        if (sector_num < 0 || sector_num > max_sector || (sector_num + num_sectors - 1) > max_sector) {
-            fprintf(stderr, "Error (INT 0x37): Invalid sector range %d to %d (max %lld).\n",
-                sector_num, sector_num + num_sectors - 1, max_sector);
-            status = 1;
-            goto disk_read_end;
-        }
-
-        long long total_bytes = (long long)num_sectors * cpu->disk_sector_size;
-        if (!isValidMem(mem_addr) || !isValidMem(mem_addr + total_bytes - 1)) {
-            fprintf(stderr, "Error (INT 0x37): Invalid memory range 0x%X to 0x%X for %lld bytes.\n",
-                mem_addr, mem_addr + (int)total_bytes - 1, total_bytes);
-            status = 2;
-            goto disk_read_end;
-        }
-
-        long long seek_pos = (long long)sector_num * cpu->disk_sector_size;
-        if (fseek(cpu->disk_image_fp, seek_pos, SEEK_SET) != 0) {
-            perror("Error (INT 0x37): fseek failed");
-            status = 3;
-            goto disk_read_end;
-        }
-
-        char* sector_buffer = malloc(total_bytes);
-        if (!sector_buffer) {
-            fprintf(stderr, "Error (INT 0x37): Failed to allocate sector buffer (%lld bytes).\n", total_bytes);
-            status = 3;
-            goto disk_read_end;
-        }
-
-        size_t bytes_read = fread(sector_buffer, 1, total_bytes, cpu->disk_image_fp);
-        if (bytes_read != (size_t)total_bytes) {
-            if (ferror(cpu->disk_image_fp)) {
-                perror("Error (INT 0x37): fread failed");
-            }
-            else {
-                fprintf(stderr, "Error (INT 0x37): fread returned short count (%zu != %lld).\n", bytes_read, total_bytes);
-            }
-            free(sector_buffer);
-            status = 3;
-            goto disk_read_end;
-        }
-
-        for (long long i = 0; i < total_bytes; ++i) {
-            if (isValidMem(mem_addr + i)) {
-                cpu->memory[mem_addr + i] = (int)(unsigned char)sector_buffer[i];
-            }
-            else {
-                fprintf(stderr, "FATAL Error (INT 0x37): Memory bounds exceeded during copy after fread!.\n");
-                status = 2;
-                break;
-            }
-        }
-        free(sector_buffer);
-
-    disk_read_end:
-        cpu->registers[status_reg] = status;
-    }
-    break;
-
-    case INT_DISK_WRITE:
-    {
-        int sector_num_reg = 0;
-        int mem_addr_reg = 1;
-        int num_sectors_reg = 2;
-        int status_reg = 0;
-
-        int sector_num = cpu->registers[sector_num_reg];
-        int mem_addr = cpu->registers[mem_addr_reg];
-        int num_sectors = cpu->registers[num_sectors_reg];
-        int status = 0;
-
-        if (!cpu->disk_image_fp) {
-            fprintf(stderr, "Error (INT 0x38): Disk image not open.\n");
-            status = 3;
-            goto disk_write_end;
-        }
-        if (num_sectors <= 0) {
-            status = 0;
-            goto disk_write_end;
-        }
-
-        long long max_sector = (cpu->disk_image_size / cpu->disk_sector_size) - 1;
-        if (sector_num < 0 || sector_num > max_sector || (sector_num + num_sectors - 1) > max_sector) {
-            fprintf(stderr, "Error (INT 0x38): Invalid sector range %d to %d (max %lld).\n",
-                sector_num, sector_num + num_sectors - 1, max_sector);
-            status = 1;
-            goto disk_write_end;
-        }
-
-        long long total_bytes = (long long)num_sectors * cpu->disk_sector_size;
-        if (!isValidMem(mem_addr) || !isValidMem(mem_addr + total_bytes - 1)) {
-            fprintf(stderr, "Error (INT 0x38): Invalid memory range 0x%X to 0x%X for %lld bytes.\n",
-                mem_addr, mem_addr + (int)total_bytes - 1, total_bytes);
-            status = 2;
-            goto disk_write_end;
-        }
-
-        char* sector_buffer = malloc(total_bytes);
-        if (!sector_buffer) {
-            fprintf(stderr, "Error (INT 0x38): Failed to allocate sector buffer (%lld bytes).\n", total_bytes);
-            status = 3;
-            goto disk_write_end;
-        }
-
-        for (long long i = 0; i < total_bytes; ++i) {
-            if (isValidMem(mem_addr + i)) {
-                sector_buffer[i] = (char)(cpu->memory[mem_addr + i] & 0xFF);
-            }
-            else {
-                fprintf(stderr, "FATAL Error (INT 0x38): Memory bounds exceeded during copy before fwrite!.\n");
-                free(sector_buffer);
-                status = 2;
-                goto disk_write_end;
-            }
-        }
-
-        long long seek_pos = (long long)sector_num * cpu->disk_sector_size;
-        if (fseek(cpu->disk_image_fp, seek_pos, SEEK_SET) != 0) {
-            perror("Error (INT 0x38): fseek failed");
-            free(sector_buffer);
-            status = 3;
-            goto disk_write_end;
-        }
-
-        size_t bytes_written = fwrite(sector_buffer, 1, total_bytes, cpu->disk_image_fp);
-        free(sector_buffer);
-
-        if (bytes_written != (size_t)total_bytes) {
-            if (ferror(cpu->disk_image_fp)) {
-                perror("Error (INT 0x38): fwrite failed");
-            }
-            else {
-                fprintf(stderr, "Error (INT 0x38): fwrite wrote short count (%zu != %lld).\n", bytes_written, total_bytes);
-            }
-            status = 3;
-            fflush(cpu->disk_image_fp);
-            goto disk_write_end;
-        }
-
-        if (fflush(cpu->disk_image_fp) != 0) {
-            perror("Error (INT 0x38): fflush failed after write");
-            status = 3;
-            goto disk_write_end;
-        }
-
-    disk_write_end:
-        cpu->registers[status_reg] = status;
-    }
-    break;
-
-    case INT_DISK_INFO:
-    {
-        int total_sectors_reg = 0;
-        int sector_size_reg = 1;
-
-        if (!cpu->disk_image_fp) {
-            fprintf(stderr, "Error (INT 0x39): Disk image not open.\n");
-            cpu->registers[total_sectors_reg] = -1;
-            cpu->registers[sector_size_reg] = 0;
-        }
-        else {
-            long long total_sectors = cpu->disk_image_size / cpu->disk_sector_size;
-            if (total_sectors > INT_MAX) {
-                fprintf(stderr, "Warning (INT 0x39): Total sector count (%lld) exceeds INT_MAX.\n", total_sectors);
-                cpu->registers[total_sectors_reg] = INT_MAX;
-            }
-            else {
-                cpu->registers[total_sectors_reg] = (int)total_sectors;
-            }
-            cpu->registers[sector_size_reg] = cpu->disk_sector_size;
-        }
-    }
-    break;
-    case INT_BREAKPOINT:
-#ifdef _MSC_VER
-        __debugbreak();
-#else
-        __builtin_trap();
-#endif
-        break;
-
-    case INT_DRAW_STRING_GFX:
+    case INT_DRAW_STRING_GFX: // 0x16
     {
         int x = cpu->registers[0];
         int y = cpu->registers[1];
@@ -2039,7 +1611,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         if (!cpu->pixels) break;
 
         if (color_idx < 0 || color_idx >= PALETTE_SIZE) {
-            fprintf(stderr, "Warning (INT 0x41): Invalid color index %d. Defaulting to 0.\n", color_idx);
+            fprintf(stderr, "Warning (INT 0x16): Invalid color index %d. Defaulting to 0.\n", color_idx);
             color_idx = 0;
         }
         SDL_Color palette_color = cpu->palette[color_idx];
@@ -2048,8 +1620,9 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
             ((Uint32)palette_color.g << 8) |
             ((Uint32)palette_color.b);
 
+
         if (!isValidMem(str_addr)) {
-            fprintf(stderr, "Error (INT 0x41): Invalid string start address 0x%X\n", str_addr);
+            fprintf(stderr, "Error (INT 0x16): Invalid string start address 0x%X\n", str_addr);
             break;
         }
 
@@ -2082,14 +1655,13 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
             current_x += 8;
             current_addr++;
-            if (cpu->screen_on == 1) {
-                updateScreen(cpu);
-            }
+        }
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
         }
     }
     break;
-
-    case INT_BLIT:
+    case INT_BLIT: // 0x17
     {
         int dx = cpu->registers[0];
         int dy = cpu->registers[1];
@@ -2102,7 +1674,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 
         long long num_bytes_needed = (long long)sw * sh;
         if (num_bytes_needed > (MEMORY_SIZE - src_addr) || src_addr < 0 || !isValidMem(src_addr) || !isValidMem(src_addr + num_bytes_needed - 1)) {
-            fprintf(stderr, "Error (INT 0x42): Invalid source memory range [0x%X - 0x%X] for %dx%d blit.\n",
+            fprintf(stderr, "Error (INT 0x17): Invalid source memory range [0x%X - 0x%X] for %dx%d blit.\n",
                 src_addr, src_addr + (int)num_bytes_needed - 1, sw, sh);
             break;
         }
@@ -2142,14 +1714,13 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         }
     }
     break;
-
-    case INT_GET_SCREEN_SIZE:
+    case INT_GET_SCREEN_SIZE: // 0x18
     {
         int width_reg = 0;
         int height_reg = 1;
 
         if (!isValidReg(width_reg) || !isValidReg(height_reg)) {
-            fprintf(stderr, "Error (INT 0x43): Hardcoded result registers R%d/R%d invalid!\n", width_reg, height_reg);
+            fprintf(stderr, "Error (INT 0x18): Hardcoded result registers R%d/R%d invalid!\n", width_reg, height_reg);
             if (isValidReg(0)) cpu->registers[0] = -1;
             if (isValidReg(1)) cpu->registers[1] = -1;
             break;
@@ -2160,8 +1731,452 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
     }
     break;
 
+    case INT_SPEAKER_ON: // 0x20
+        SDL_LockAudioDevice(cpu->audioDevice);
+        cpu->speaker_on = 1;
+        cpu->sleep_duration = 0;
+        SDL_UnlockAudioDevice(cpu->audioDevice);
+        break;
+    case INT_SPEAKER_OFF: // 0x21
+        SDL_LockAudioDevice(cpu->audioDevice);
+        cpu->speaker_on = 0;
+        cpu->sleep_duration = 0;
+        cpu->sleep_start_time = 0;
+        SDL_UnlockAudioDevice(cpu->audioDevice);
+        break;
+    case INT_SET_FREQ: // 0x22
+        SDL_LockAudioDevice(cpu->audioDevice);
+        cpu->frequency = (double)cpu->registers[0];
+        if (cpu->frequency <= 0) cpu->frequency = 1.0;
+        SDL_UnlockAudioDevice(cpu->audioDevice);
+        break;
+    case INT_SET_VOLUME: // 0x23
+        SDL_LockAudioDevice(cpu->audioDevice);
+        cpu->volume = (double)cpu->registers[0] / 100.0;
+        if (cpu->volume < 0.0) cpu->volume = 0.0;
+        if (cpu->volume > 1.0) cpu->volume = 1.0;
+        SDL_UnlockAudioDevice(cpu->audioDevice);
+        break;
+    case INT_SPEAKER_SLEEP: // 0x24
+        SDL_LockAudioDevice(cpu->audioDevice);
+        cpu->sleep_duration = cpu->registers[0];
+        cpu->sleep_start_time = SDL_GetTicks();
+        SDL_UnlockAudioDevice(cpu->audioDevice);
+        break;
+
+    case INT_SLEEP_MS: // 0x30
+    {
+        int sleep_ms = cpu->registers[0];
+        if (sleep_ms > 0) {
+            SDL_Delay((Uint32)sleep_ms);
+        }
+        else if (sleep_ms < 0) {
+            fprintf(stderr, "Warning (INT 0x30): Negative sleep duration (%d ms). Ignoring.\n", sleep_ms);
+        }
+    }
+    break;
+    case INT_GET_TIME: // 0x31
+    {
+        time_t timer;
+        struct tm* tm_info;
+        time(&timer);
+        tm_info = localtime(&timer);
+        cpu->registers[0] = tm_info->tm_hour;
+        cpu->registers[1] = tm_info->tm_min;
+        cpu->registers[2] = tm_info->tm_sec;
+    }
+    break;
+    case INT_GET_TICKS: // 0x32
+        cpu->registers[0] = SDL_GetTicks();
+        break;
+    case INT_GET_DATETIME: // 0x33
+    {
+        time_t timer;
+        struct tm* tm_info;
+        time(&timer);
+        tm_info = localtime(&timer);
+
+        cpu->registers[0] = tm_info->tm_year + 1900;
+        cpu->registers[1] = tm_info->tm_mon + 1;
+        cpu->registers[2] = tm_info->tm_mday;
+        cpu->registers[3] = tm_info->tm_hour;
+        cpu->registers[4] = tm_info->tm_min;
+        cpu->registers[5] = tm_info->tm_sec;
+    }
+    break;
+
+    case INT_RESET_CPU: // 0x40
+    {
+        int old_w = cpu->screen_width;
+        int old_h = cpu->screen_height;
+        Uint32* old_pixels = cpu->pixels;
+        SDL_Color old_palette[PALETTE_SIZE];
+        memcpy(old_palette, cpu->palette, sizeof(old_palette));
+        int old_screen_on = cpu->screen_on;
+        int old_speaker_on = cpu->speaker_on;
+        double old_freq = cpu->frequency;
+        double old_vol = cpu->volume;
+
+        init_cpu(cpu);
+
+        cpu->screen_width = old_w;
+        cpu->screen_height = old_h;
+        cpu->pixels = old_pixels;
+        memcpy(cpu->palette, old_palette, sizeof(cpu->palette));
+        cpu->screen_on = old_screen_on;
+        cpu->speaker_on = old_speaker_on;
+        cpu->frequency = old_freq;
+        cpu->volume = old_vol;
+
+        fprintf(stdout, "CPU Reset executed (INT 0x40).\n");
+    }
+    break;
+    case INT_SYSTEM_SHUTDOWN: // 0x41
+        cpu->shutdown_requested = true;
+        exit(0);
+        break;
+    case INT_GET_MEMORY_SIZE: // 0x42
+    {
+        int dest_reg = 0;
+        cpu->registers[dest_reg] = MEMORY_SIZE;
+    }
+    break;
+    case INT_CPUID: // 0x43
+    {
+        int dest_reg = 0;
+        if (!isValidReg(dest_reg)) break;
+        cpuid_op(cpu, dest_reg);
+    }
+    break;
+    case INT_BREAKPOINT: // 0x44
+#ifdef _MSC_VER
+        __debugbreak();
+#elif defined(__GNUC__) || defined(__clang__)
+        __builtin_trap();
+#else
+        fprintf(stderr, "INT 0x44: Breakpoint requested, but no specific mechanism for this compiler.\n");
+        raise(SIGTRAP);
+#endif
+        break;
+    case INT_DUMP_REGISTERS: // 0x45
+        printf("--- Register Dump ---\n");
+        for (int i = 0; i < NUM_REGISTERS; i++) {
+            printf(" R%d: %d (0x%X)\n", i, cpu->registers[i], cpu->registers[i]);
+        }
+        printf(" IP: %d\n", cpu->ip);
+        printf(" Flags: 0x%X (Z:%d G:%d L:%d O:%d)\n", cpu->flags,
+            (cpu->flags & FLAG_ZERO) ? 1 : 0,
+            (cpu->flags & FLAG_GREATER) ? 1 : 0,
+            (cpu->flags & FLAG_LESS) ? 1 : 0,
+            (cpu->flags & FLAG_OVERFLOW) ? 1 : 0);
+        printf(" SP: %d (0x%X)\n", cpu->sp, cpu->sp);
+        printf("---------------------\n");
+        break;
+    case INT_DUMP_MEMORY: // 0x46
+    {
+        int addr = cpu->registers[0];
+        int length = cpu->registers[1];
+        if (addr < 0) addr = 0;
+        if (length <= 0) length = 16;
+        if (addr >= MEMORY_SIZE) {
+            fprintf(stderr, "Warning (INT 0x46): Start address 0x%X out of bounds.\n", addr);
+            break;
+        }
+        if (addr + length > MEMORY_SIZE) {
+            length = MEMORY_SIZE - addr;
+            fprintf(stderr, "Warning (INT 0x46): Length clamped to %d due to memory bounds.\n", length);
+        }
+
+
+        printf("--- Memory Dump Addr: 0x%X, Len: %d ---\n", addr, length);
+        for (int i = 0; i < length; i++) {
+            if (i % 16 == 0) {
+                if (i != 0) printf("\n");
+                printf("%08X: ", addr + i);
+            }
+            if (isValidMem(addr + i)) {
+                printf("%02X ", cpu->memory[addr + i] & 0xFF);
+            }
+            else {
+                printf("?? ");
+            }
+        }
+        printf("\n");
+        printf("---------------------------------------\n");
+    }
+    break;
+
+    case INT_GET_KEY_STATE: // 0x50
+    {
+        int scancode_reg = 0;
+        int result_reg = 0;
+        SDL_Scancode scancode = (SDL_Scancode)cpu->registers[scancode_reg];
+
+        SDL_PumpEvents();
+
+        const Uint8* keystate = SDL_GetKeyboardState(NULL);
+
+        if (keystate == NULL) {
+            fprintf(stderr, "Error (INT 0x50): SDL_GetKeyboardState returned NULL.\n");
+            cpu->registers[result_reg] = 0;
+            break;
+        }
+
+        if (scancode >= 0 && scancode < SDL_NUM_SCANCODES) {
+            cpu->registers[result_reg] = keystate[scancode] ? 1 : 0;
+        }
+        else {
+            cpu->registers[result_reg] = 0;
+        }
+    }
+    break;
+    case INT_WAIT_FOR_KEY: // 0x51
+    {
+        int result_reg = 0;
+        SDL_Event event;
+        bool key_pressed = false;
+
+        while (!key_pressed && !cpu->shutdown_requested) {
+            if (SDL_WaitEventTimeout(&event, 10)) {
+                if (event.type == SDL_QUIT) {
+                    fprintf(stdout, "SDL_QUIT received during INT 0x51.\n");
+                    cpu->registers[result_reg] = -1;
+                    cpu->shutdown_requested = true;
+                    key_pressed = true;
+                }
+                else if (event.type == SDL_KEYDOWN) {
+                    cpu->registers[result_reg] = event.key.keysym.scancode;
+                    key_pressed = true;
+                }
+            }
+            SDL_PumpEvents();
+        }
+        if (cpu->shutdown_requested && !key_pressed) {
+            cpu->registers[result_reg] = -1;
+        }
+    }
+    break;
+    case INT_GET_MOUSE_STATE: // 0x52
+    {
+        int x_reg = 0;
+        int y_reg = 1;
+        int button_reg = 2;
+        int mouse_x, mouse_y;
+
+        SDL_PumpEvents();
+
+        Uint32 button_state = SDL_GetMouseState(&mouse_x, &mouse_y);
+
+        cpu->registers[x_reg] = mouse_x;
+        cpu->registers[y_reg] = mouse_y;
+
+        int button_mask = 0;
+        if (button_state & SDL_BUTTON(SDL_BUTTON_LEFT))   button_mask |= 1;
+        if (button_state & SDL_BUTTON(SDL_BUTTON_MIDDLE)) button_mask |= 2;
+        if (button_state & SDL_BUTTON(SDL_BUTTON_RIGHT))  button_mask |= 4;
+
+        cpu->registers[button_reg] = button_mask;
+    }
+    break;
+
+    case INT_DISK_READ: // 0x60
+    {
+        int sector_num_reg = 0;
+        int mem_addr_reg = 1;
+        int num_sectors_reg = 2;
+        int status_reg = 0;
+
+        int sector_num = cpu->registers[sector_num_reg];
+        int mem_addr = cpu->registers[mem_addr_reg];
+        int num_sectors = cpu->registers[num_sectors_reg];
+        int status = 0;
+
+        if (!cpu->disk_image_fp) {
+            fprintf(stderr, "Error (INT 0x60): Disk image not open.\n");
+            status = 3;
+            goto disk_read_end;
+        }
+        if (num_sectors <= 0) {
+            status = 0;
+            goto disk_read_end;
+        }
+
+        long long max_sector = (cpu->disk_image_size / cpu->disk_sector_size) - 1;
+        if (sector_num < 0 || sector_num > max_sector || (sector_num + num_sectors - 1) > max_sector) {
+            fprintf(stderr, "Error (INT 0x60): Invalid sector range %d to %d (max %lld).\n",
+                sector_num, sector_num + num_sectors - 1, max_sector);
+            status = 1;
+            goto disk_read_end;
+        }
+
+        long long total_bytes = (long long)num_sectors * cpu->disk_sector_size;
+        if (!isValidMem(mem_addr) || !isValidMem(mem_addr + total_bytes - 1)) {
+            fprintf(stderr, "Error (INT 0x60): Invalid memory range 0x%X to 0x%X for %lld bytes.\n",
+                mem_addr, mem_addr + (int)total_bytes - 1, total_bytes);
+            status = 2;
+            goto disk_read_end;
+        }
+
+        long long seek_pos = (long long)sector_num * cpu->disk_sector_size;
+        if (fseek(cpu->disk_image_fp, seek_pos, SEEK_SET) != 0) {
+            perror("Error (INT 0x60): fseek failed");
+            status = 3;
+            goto disk_read_end;
+        }
+
+        char* sector_buffer = malloc(total_bytes);
+        if (!sector_buffer) {
+            fprintf(stderr, "Error (INT 0x60): Failed to allocate sector buffer (%lld bytes).\n", total_bytes);
+            status = 3;
+            goto disk_read_end;
+        }
+
+        size_t bytes_read = fread(sector_buffer, 1, total_bytes, cpu->disk_image_fp);
+        if (bytes_read != (size_t)total_bytes) {
+            if (ferror(cpu->disk_image_fp)) {
+                perror("Error (INT 0x60): fread failed");
+            }
+            else {
+                fprintf(stderr, "Error (INT 0x60): fread returned short count (%zu != %lld).\n", bytes_read, total_bytes);
+            }
+            free(sector_buffer);
+            status = 3;
+            goto disk_read_end;
+        }
+
+        for (long long i = 0; i < total_bytes; ++i) {
+            if (isValidMem(mem_addr + i)) {
+                cpu->memory[mem_addr + i] = (int)(unsigned char)sector_buffer[i];
+            }
+            else {
+                fprintf(stderr, "FATAL Error (INT 0x60): Memory bounds exceeded during copy after fread!.\n");
+                status = 2;
+                break;
+            }
+        }
+        free(sector_buffer);
+
+    disk_read_end:
+        cpu->registers[status_reg] = status;
+    }
+    break;
+    case INT_DISK_WRITE: // 0x61
+    {
+        int sector_num_reg = 0;
+        int mem_addr_reg = 1;
+        int num_sectors_reg = 2;
+        int status_reg = 0;
+
+        int sector_num = cpu->registers[sector_num_reg];
+        int mem_addr = cpu->registers[mem_addr_reg];
+        int num_sectors = cpu->registers[num_sectors_reg];
+        int status = 0;
+
+        if (!cpu->disk_image_fp) {
+            fprintf(stderr, "Error (INT 0x61): Disk image not open.\n");
+            status = 3;
+            goto disk_write_end;
+        }
+        if (num_sectors <= 0) {
+            status = 0;
+            goto disk_write_end;
+        }
+
+        long long max_sector = (cpu->disk_image_size / cpu->disk_sector_size) - 1;
+        if (sector_num < 0 || sector_num > max_sector || (sector_num + num_sectors - 1) > max_sector) {
+            fprintf(stderr, "Error (INT 0x61): Invalid sector range %d to %d (max %lld).\n",
+                sector_num, sector_num + num_sectors - 1, max_sector);
+            status = 1;
+            goto disk_write_end;
+        }
+
+        long long total_bytes = (long long)num_sectors * cpu->disk_sector_size;
+        if (!isValidMem(mem_addr) || !isValidMem(mem_addr + total_bytes - 1)) {
+            fprintf(stderr, "Error (INT 0x61): Invalid memory range 0x%X to 0x%X for %lld bytes.\n",
+                mem_addr, mem_addr + (int)total_bytes - 1, total_bytes);
+            status = 2;
+            goto disk_write_end;
+        }
+
+        char* sector_buffer = malloc(total_bytes);
+        if (!sector_buffer) {
+            fprintf(stderr, "Error (INT 0x61): Failed to allocate sector buffer (%lld bytes).\n", total_bytes);
+            status = 3;
+            goto disk_write_end;
+        }
+
+        for (long long i = 0; i < total_bytes; ++i) {
+            if (isValidMem(mem_addr + i)) {
+                sector_buffer[i] = (char)(cpu->memory[mem_addr + i] & 0xFF);
+            }
+            else {
+                fprintf(stderr, "FATAL Error (INT 0x61): Memory bounds exceeded during copy before fwrite!.\n");
+                free(sector_buffer);
+                status = 2;
+                goto disk_write_end;
+            }
+        }
+
+        long long seek_pos = (long long)sector_num * cpu->disk_sector_size;
+        if (fseek(cpu->disk_image_fp, seek_pos, SEEK_SET) != 0) {
+            perror("Error (INT 0x61): fseek failed");
+            free(sector_buffer);
+            status = 3;
+            goto disk_write_end;
+        }
+
+        size_t bytes_written = fwrite(sector_buffer, 1, total_bytes, cpu->disk_image_fp);
+        free(sector_buffer);
+
+        if (bytes_written != (size_t)total_bytes) {
+            if (ferror(cpu->disk_image_fp)) {
+                perror("Error (INT 0x61): fwrite failed");
+            }
+            else {
+                fprintf(stderr, "Error (INT 0x61): fwrite wrote short count (%zu != %lld).\n", bytes_written, total_bytes);
+            }
+            status = 3;
+            fflush(cpu->disk_image_fp);
+            goto disk_write_end;
+        }
+
+        if (fflush(cpu->disk_image_fp) != 0) {
+            perror("Error (INT 0x61): fflush failed after write");
+            status = 3;
+            goto disk_write_end;
+        }
+
+    disk_write_end:
+        cpu->registers[status_reg] = status;
+    }
+    break;
+    case INT_DISK_INFO: // 0x62
+    {
+        int total_sectors_reg = 0;
+        int sector_size_reg = 1;
+
+        if (!cpu->disk_image_fp) {
+            fprintf(stderr, "Error (INT 0x62): Disk image not open.\n");
+            cpu->registers[total_sectors_reg] = -1;
+            cpu->registers[sector_size_reg] = 0;
+        }
+        else {
+            long long total_sectors = cpu->disk_image_size / cpu->disk_sector_size;
+            if (total_sectors > INT_MAX) {
+                fprintf(stderr, "Warning (INT 0x62): Total sector count (%lld) exceeds INT_MAX.\n", total_sectors);
+                cpu->registers[total_sectors_reg] = INT_MAX;
+            }
+            else {
+                cpu->registers[total_sectors_reg] = (int)total_sectors;
+            }
+            cpu->registers[sector_size_reg] = cpu->disk_sector_size;
+        }
+    }
+    break;
+
     default:
         fprintf(stderr, "Error: Unknown interrupt code 0x%X at line %d\n", interrupt_id, cpu->ip + 1);
+        cpu->shutdown_requested = true;
         break;
     }
 }
@@ -3832,6 +3847,7 @@ int main(int argc, char* argv[]) {
 
 #ifdef _WIN32
     enable_virtual_terminal_processing_if_needed();
+    puts("\n");
     printf("Virtual terminal processing checked/enabled (Windows).\n");
 #endif
 

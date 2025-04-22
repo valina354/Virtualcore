@@ -351,11 +351,10 @@ typedef struct {
 // CPU / System / Memory Control
 #define INT_RESET_CPU       0x40 // Full CPU reset (state, memory, registers, flags, ip)
 #define INT_SYSTEM_SHUTDOWN 0x41 // Requests the emulator session to end
-#define INT_GET_MEMORY_SIZE 0x42 // Get configured MEMORY_SIZE into R0
-#define INT_CPUID           0x43 // Get CPU Version into R0 (uses CPUID instruction name for clarity)
-#define INT_BREAKPOINT      0x44 // Trigger host debugger breakpoint (if attached and set)
-#define INT_DUMP_REGISTERS  0x45 // Print all register values, IP, SP, Flags
-#define INT_DUMP_MEMORY     0x46 // Dump memory from R0 for length R1
+#define INT_GET_MEMORY_SIZE 0x42 // Get configured MEMORY_SIZE into R
+#define INT_BREAKPOINT      0x43 // Trigger host debugger breakpoint (if attached and set)
+#define INT_DUMP_REGISTERS  0x44 // Print all register values, IP, SP, Flags
+#define INT_DUMP_MEMORY     0x45 // Dump memory from R0 for length R1
 
 // Input Device State
 #define INT_GET_KEY_STATE   0x50 // Get state of key (SDL_Scancode in R0). R0=1 if pressed, 0 if not.
@@ -1841,14 +1840,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         cpu->registers[dest_reg] = MEMORY_SIZE;
     }
     break;
-    case INT_CPUID: // 0x43
-    {
-        int dest_reg = 0;
-        if (!isValidReg(dest_reg)) break;
-        cpuid_op(cpu, dest_reg);
-    }
-    break;
-    case INT_BREAKPOINT: // 0x44
+    case INT_BREAKPOINT: // 0x43
 #ifdef _MSC_VER
         __debugbreak();
 #elif defined(__GNUC__) || defined(__clang__)
@@ -1858,7 +1850,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         raise(SIGTRAP);
 #endif
         break;
-    case INT_DUMP_REGISTERS: // 0x45
+    case INT_DUMP_REGISTERS: // 0x44
         printf("--- Register Dump ---\n");
         for (int i = 0; i < NUM_REGISTERS; i++) {
             printf(" R%d: %d (0x%X)\n", i, cpu->registers[i], cpu->registers[i]);
@@ -1872,7 +1864,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         printf(" SP: %d (0x%X)\n", cpu->sp, cpu->sp);
         printf("---------------------\n");
         break;
-    case INT_DUMP_MEMORY: // 0x46
+    case INT_DUMP_MEMORY: // 0x45
     {
         int addr = cpu->registers[0];
         int length = cpu->registers[1];

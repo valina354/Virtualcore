@@ -3804,11 +3804,17 @@ int main(int argc, char* argv[]) {
     (void)argv;
 
     char* program[MAX_PROGRAM_SIZE];
-    const char* filename = "program.asm";
+    char filename[256];
     int program_size = 0;
     VirtualCPU* cpu_ptr = NULL;
     bool sdl_initialized = false;
     bool cpu_initialized = false;
+
+    printf("Enter the filename of the .asm file to run: ");
+    if (scanf("%255s", filename) != 1) {
+        fprintf(stderr, "Invalid input.\n");
+        return 1;
+    }
 
     printf("Allocating Virtual CPU on heap...\n");
     cpu_ptr = (VirtualCPU*)malloc(sizeof(VirtualCPU));
@@ -3817,7 +3823,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     printf("CPU Struct Allocated.\n");
-
 
     printf("Initializing Virtual CPU...\n");
     if (!init_cpu(cpu_ptr)) {
@@ -3848,7 +3853,7 @@ int main(int argc, char* argv[]) {
     printf("Virtual terminal processing checked/enabled (Windows).\n");
 #endif
 
-    printf("Loading program '%s'...\n");
+    printf("Loading program '%s'...\n", filename);
     program_size = loadProgram(filename, program, MAX_PROGRAM_SIZE);
 
     if (program_size < 0) {
@@ -3859,7 +3864,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     printf("Program loaded successfully (%d lines).\n", program_size);
-
 
     printf("Starting execution...\n");
     execute(cpu_ptr, program, program_size);

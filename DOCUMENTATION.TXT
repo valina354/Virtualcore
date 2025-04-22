@@ -408,6 +408,10 @@ Notes: Memory layout is assumed row-major (index = y * width + x). Invalid memor
 Description: Gets the current graphics screen dimensions.
 Input: None.
 Output: R0 = Current screen width, R1 = Current screen height.
+0x19 (INT_UPDATE_GFX_SCREEN)
+Description: Manually updates the screen, this is very helpfull and heavily improves performance of graphics
+Input: None.
+Output: Updates the screen
 Audio Control
 0x20 (INT_SPEAKER_ON)
 Description: Enables audio output using the current frequency and volume. Cancels any active INT_SPEAKER_SLEEP.

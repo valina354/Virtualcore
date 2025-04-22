@@ -367,8 +367,6 @@ typedef struct {
 #define INT_DISK_WRITE      0x61 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_INFO       0x62 // Get disk info -> R0=TotalSectors, R1=SectorSize
 
-#define MAX_OPEN_FILES 16
-
 #define DISK_IMAGE_FILENAME "disk.img"
 #define DISK_IMAGE_SIZE_BYTES (16 * 1024 * 1024) // 16 MB
 #define DISK_SECTOR_SIZE 512
@@ -398,9 +396,6 @@ typedef struct {
     int screen_on;
 
     bool shutdown_requested;
-
-    FILE* open_files[MAX_OPEN_FILES];
-    bool file_slot_used[MAX_OPEN_FILES];
 
     FILE* disk_image_fp;
     long long disk_image_size;
@@ -627,11 +622,6 @@ bool init_cpu(VirtualCPU* cpu) {
     cpu->palette[14] = (SDL_Color){ 255, 255, 85, 255 };
     cpu->palette[15] = (SDL_Color){ 255, 255, 255, 255 };
 
-    for (int i = 0; i < MAX_OPEN_FILES; ++i) {
-        cpu->open_files[i] = NULL;
-        cpu->file_slot_used[i] = false;
-    }
-
     cpu->disk_image_fp = NULL;
     cpu->disk_image_size = 0;
     cpu->disk_sector_size = 512;
@@ -645,14 +635,6 @@ void cleanup_cpu(VirtualCPU* cpu) {
     if (cpu) {
         free(cpu->pixels);
         cpu->pixels = NULL;
-
-        for (int i = 0; i < MAX_OPEN_FILES; ++i) {
-            if (cpu->open_files[i]) {
-                fclose(cpu->open_files[i]);
-                cpu->open_files[i] = NULL;
-                cpu->file_slot_used[i] = false;
-            }
-        }
 
         if (cpu->disk_image_fp) {
             printf("Closing disk image '%s'.\n", DISK_IMAGE_FILENAME);
@@ -3797,7 +3779,6 @@ void audioCallback(void* userdata, Uint8* stream, int len) {
         if (phase >= 1.0) phase -= 1.0;
     }
 }
-
 
 int main(void) {
     char* program[MAX_PROGRAM_SIZE];

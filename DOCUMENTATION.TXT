@@ -271,7 +271,7 @@ Flags Affected: ZF, GF, LF, OF (all potentially restored from stack).
 Flag Manipulation Instructions
 SETF imm
 Syntax: SETF <hex_flag_mask>
-Description: Sets the flags specified in the hex_flag_mask (e.g., SETF 0x01 sets ZF). Uses bitwise OR.
+Description: Sets the flags specified in the hex_flag_mask (e.g., SETF 0x01 sets ZF). Uses bitwise OR. SETF 0 sets all Z, G, L, O flags.
 Flags Affected: Specified by the mask.
 CLRF imm
 Syntax: CLRF <hex_flag_mask> OR CLRF 0

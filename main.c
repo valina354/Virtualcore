@@ -811,6 +811,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "JMP") == 0) return JMP;
     if (strcasecmp(instruction, "CMP") == 0) return CMP;
     if (strcasecmp(instruction, "JNE") == 0) return JNE;
+    if (strcasecmp(instruction, "JMPNE") == 0) return JNE;
     if (strcasecmp(instruction, "JMPH") == 0) return JMPH;
     if (strcasecmp(instruction, "JMPL") == 0) return JMPL;
     if (strcasecmp(instruction, "NEG") == 0) return NEG;
@@ -862,6 +863,10 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "JNO") == 0) return JNO;
     if (strcasecmp(instruction, "JGE") == 0) return JGE;
     if (strcasecmp(instruction, "JLE") == 0) return JLE;
+    if (strcasecmp(instruction, "JMPO") == 0) return JO;
+    if (strcasecmp(instruction, "JMPNO") == 0) return JNO;
+    if (strcasecmp(instruction, "JMPGE") == 0) return JGE;
+    if (strcasecmp(instruction, "JMPLE") == 0) return JLE;
     return INVALID_INST;
 }
 

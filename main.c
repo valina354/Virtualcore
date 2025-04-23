@@ -14,6 +14,12 @@
 #include <SDL.h>
 #include <stdbool.h>
 
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#else
+#include <strings.h>
+#endif
+
 // Classic VGA 8x16 Font (256 characters, 16 bytes each)
 // Each byte represents a row, MSB is the leftmost pixel.
 static const unsigned char vga_font_8x16[256][16] = {
@@ -605,21 +611,52 @@ bool init_cpu(VirtualCPU* cpu) {
     }
     memset(cpu->pixels, 0, cpu->screen_width * cpu->screen_height * sizeof(Uint32));
 
+    // Index 0: Black color (R: 0, G: 0, B: 0, A: 255)
     cpu->palette[0] = (SDL_Color){ 0, 0, 0, 255 };
+
+    // Index 1: Blue color (R: 0, G: 0, B: 170, A: 255)
     cpu->palette[1] = (SDL_Color){ 0, 0, 170, 255 };
+
+    // Index 2: Green color (R: 0, G: 170, B: 0, A: 255)
     cpu->palette[2] = (SDL_Color){ 0, 170, 0, 255 };
+
+    // Index 3: Cyan color (R: 0, G: 170, B: 170, A: 255)
     cpu->palette[3] = (SDL_Color){ 0, 170, 170, 255 };
+
+    // Index 4: Red color (R: 170, G: 0, B: 0, A: 255)
     cpu->palette[4] = (SDL_Color){ 170, 0, 0, 255 };
+
+    // Index 5: Magenta color (R: 170, G: 0, B: 170, A: 255)
     cpu->palette[5] = (SDL_Color){ 170, 0, 170, 255 };
+
+    // Index 6: Orange color (R: 170, G: 85, B: 0, A: 255)
     cpu->palette[6] = (SDL_Color){ 170, 85, 0, 255 };
+
+    // Index 7: Light gray color (R: 170, G: 170, B: 170, A: 255)
     cpu->palette[7] = (SDL_Color){ 170, 170, 170, 255 };
+
+    // Index 8: Dark gray color (R: 85, G: 85, B: 85, A: 255)
     cpu->palette[8] = (SDL_Color){ 85, 85, 85, 255 };
+
+    // Index 9: Light blue color (R: 85, G: 85, B: 255, A: 255)
     cpu->palette[9] = (SDL_Color){ 85, 85, 255, 255 };
+
+    // Index 10: Light green color (R: 85, G: 255, B: 85, A: 255)
     cpu->palette[10] = (SDL_Color){ 85, 255, 85, 255 };
+
+    // Index 11: Light cyan color (R: 85, G: 255, B: 255, A: 255)
     cpu->palette[11] = (SDL_Color){ 85, 255, 255, 255 };
+
+    // Index 12: Light red color (R: 255, G: 85, B: 85, A: 255)
     cpu->palette[12] = (SDL_Color){ 255, 85, 85, 255 };
+
+    // Index 13: Light magenta color (R: 255, G: 85, B: 255, A: 255)
     cpu->palette[13] = (SDL_Color){ 255, 85, 255, 255 };
+
+    // Index 14: Yellow color (R: 255, G: 255, B: 85, A: 255)
     cpu->palette[14] = (SDL_Color){ 255, 255, 85, 255 };
+
+    // Index 15: White color (R: 255, G: 255, B: 255, A: 255)
     cpu->palette[15] = (SDL_Color){ 255, 255, 255, 255 };
 
     cpu->disk_image_fp = NULL;
@@ -757,74 +794,74 @@ void enable_virtual_terminal_processing_if_needed() {}
 #endif
 
 InstructionType parseInstruction(const char* instruction) {
-    if (strcmp(instruction, "MOV") == 0) return MOV;
-    if (strcmp(instruction, "ADD") == 0) return ADD;
-    if (strcmp(instruction, "SUB") == 0) return SUB;
-    if (strcmp(instruction, "MUL") == 0) return MUL;
-    if (strcmp(instruction, "DIV") == 0) return DIV;
-    if (strcmp(instruction, "INT") == 0) return INTR;
-    if (strcmp(instruction, "NOP") == 0) return NOP;
-    if (strcmp(instruction, "HLT") == 0) return HLT;
-    if (strcmp(instruction, "NOT") == 0) return NOT;
-    if (strcmp(instruction, "AND") == 0) return AND;
-    if (strcmp(instruction, "OR") == 0) return OR;
-    if (strcmp(instruction, "XOR") == 0) return XOR;
-    if (strcmp(instruction, "SHL") == 0) return SHL;
-    if (strcmp(instruction, "SHR") == 0) return SHR;
-    if (strcmp(instruction, "JMP") == 0) return JMP;
-    if (strcmp(instruction, "CMP") == 0) return CMP;
-    if (strcmp(instruction, "JNE") == 0) return JNE;
-    if (strcmp(instruction, "JMPH") == 0) return JMPH;
-    if (strcmp(instruction, "JMPL") == 0) return JMPL;
-    if (strcmp(instruction, "NEG") == 0) return NEG;
-    if (strcmp(instruction, "INC") == 0) return INC;
-    if (strcmp(instruction, "DEC") == 0) return DEC;
-    if (strcmp(instruction, "XCHG") == 0) return XCHG;
-    if (strcmp(instruction, "CLR") == 0) return CLR;
-    if (strcmp(instruction, "PUSH") == 0) return PUSH;
-    if (strcmp(instruction, "POP") == 0) return POP;
-    if (strcmp(instruction, "CALL") == 0) return CALL;
-    if (strcmp(instruction, "RET") == 0) return RET;
-    if (strcmp(instruction, "ROL") == 0) return ROL;
-    if (strcmp(instruction, "ROR") == 0) return ROR;
-    if (strcmp(instruction, "STRMOV") == 0) return STRMOV;
-    if (strcmp(instruction, "RND") == 0) return RND;
-    if (strcmp(instruction, "JEQ") == 0) return JEQ;
-    if (strcmp(instruction, "MOD") == 0) return MOD;
-    if (strcmp(instruction, "SQRT") == 0) return SQRT;
-    if (strcmp(instruction, "ABS") == 0) return ABS;
-    if (strcmp(instruction, "LOOP") == 0) return LOOP;
-    if (strcmp(instruction, "LOAD") == 0) return LOAD;
-    if (strcmp(instruction, "STORE") == 0) return STORE;
-    if (strcmp(instruction, "TEST") == 0) return TEST;
-    if (strcmp(instruction, "LEA") == 0) return LEA;
-    if (strcmp(instruction, "PUSHF") == 0) return PUSHF;
-    if (strcmp(instruction, "POPF") == 0) return POPF;
-    if (strcmp(instruction, "LOOPE") == 0) return LOOPE;
-    if (strcmp(instruction, "LOOPZ") == 0) return LOOPE; // Synonym
-    if (strcmp(instruction, "LOOPNE") == 0) return LOOPNE;
-    if (strcmp(instruction, "LOOPNZ") == 0) return LOOPNE; // Synonym
-    if (strcmp(instruction, "SETF") == 0) return SETF;
-    if (strcmp(instruction, "CLRF") == 0) return CLRF;
-    if (strcmp(instruction, "BT") == 0) return BT;
-    if (strcmp(instruction, "BSET") == 0) return BSET;
-    if (strcmp(instruction, "BCLR") == 0) return BCLR;
-    if (strcmp(instruction, "BTOG") == 0) return BTOG;
-    if (strcmp(instruction, "STRCMP") == 0) return STRCMP;
-    if (strcmp(instruction, "STRLEN") == 0) return STRLEN;
-    if (strcmp(instruction, "STRCPY") == 0) return STRCPY;
-    if (strcmp(instruction, "MEMCPY") == 0) return MEMCPY;
-    if (strcmp(instruction, "MEMSET") == 0) return MEMSET;
-    if (strcmp(instruction, "CPUID") == 0) return CPUID;
-    if (strcmp(instruction, "BSWAP") == 0) return BSWAP;
-    if (strcmp(instruction, "SAR") == 0) return SAR;
-    if (strcmp(instruction, "RVD") == 0) return RVD;
-    if (strcmp(instruction, "INCMEM") == 0) return INC_MEM;
-    if (strcmp(instruction, "DECMEM") == 0) return DEC_MEM;
-    if (strcmp(instruction, "JO") == 0) return JO;
-    if (strcmp(instruction, "JNO") == 0) return JNO;
-    if (strcmp(instruction, "JGE") == 0) return JGE;
-    if (strcmp(instruction, "JLE") == 0) return JLE;
+    if (strcasecmp(instruction, "MOV") == 0) return MOV;
+    if (strcasecmp(instruction, "ADD") == 0) return ADD;
+    if (strcasecmp(instruction, "SUB") == 0) return SUB;
+    if (strcasecmp(instruction, "MUL") == 0) return MUL;
+    if (strcasecmp(instruction, "DIV") == 0) return DIV;
+    if (strcasecmp(instruction, "INT") == 0) return INTR;
+    if (strcasecmp(instruction, "NOP") == 0) return NOP;
+    if (strcasecmp(instruction, "HLT") == 0) return HLT;
+    if (strcasecmp(instruction, "NOT") == 0) return NOT;
+    if (strcasecmp(instruction, "AND") == 0) return AND;
+    if (strcasecmp(instruction, "OR") == 0) return OR;
+    if (strcasecmp(instruction, "XOR") == 0) return XOR;
+    if (strcasecmp(instruction, "SHL") == 0) return SHL;
+    if (strcasecmp(instruction, "SHR") == 0) return SHR;
+    if (strcasecmp(instruction, "JMP") == 0) return JMP;
+    if (strcasecmp(instruction, "CMP") == 0) return CMP;
+    if (strcasecmp(instruction, "JNE") == 0) return JNE;
+    if (strcasecmp(instruction, "JMPH") == 0) return JMPH;
+    if (strcasecmp(instruction, "JMPL") == 0) return JMPL;
+    if (strcasecmp(instruction, "NEG") == 0) return NEG;
+    if (strcasecmp(instruction, "INC") == 0) return INC;
+    if (strcasecmp(instruction, "DEC") == 0) return DEC;
+    if (strcasecmp(instruction, "XCHG") == 0) return XCHG;
+    if (strcasecmp(instruction, "CLR") == 0) return CLR;
+    if (strcasecmp(instruction, "PUSH") == 0) return PUSH;
+    if (strcasecmp(instruction, "POP") == 0) return POP;
+    if (strcasecmp(instruction, "CALL") == 0) return CALL;
+    if (strcasecmp(instruction, "RET") == 0) return RET;
+    if (strcasecmp(instruction, "ROL") == 0) return ROL;
+    if (strcasecmp(instruction, "ROR") == 0) return ROR;
+    if (strcasecmp(instruction, "STRMOV") == 0) return STRMOV;
+    if (strcasecmp(instruction, "RND") == 0) return RND;
+    if (strcasecmp(instruction, "JEQ") == 0) return JEQ;
+    if (strcasecmp(instruction, "MOD") == 0) return MOD;
+    if (strcasecmp(instruction, "SQRT") == 0) return SQRT;
+    if (strcasecmp(instruction, "ABS") == 0) return ABS;
+    if (strcasecmp(instruction, "LOOP") == 0) return LOOP;
+    if (strcasecmp(instruction, "LOAD") == 0) return LOAD;
+    if (strcasecmp(instruction, "STORE") == 0) return STORE;
+    if (strcasecmp(instruction, "TEST") == 0) return TEST;
+    if (strcasecmp(instruction, "LEA") == 0) return LEA;
+    if (strcasecmp(instruction, "PUSHF") == 0) return PUSHF;
+    if (strcasecmp(instruction, "POPF") == 0) return POPF;
+    if (strcasecmp(instruction, "LOOPE") == 0) return LOOPE;
+    if (strcasecmp(instruction, "LOOPZ") == 0) return LOOPE; // Synonym
+    if (strcasecmp(instruction, "LOOPNE") == 0) return LOOPNE;
+    if (strcasecmp(instruction, "LOOPNZ") == 0) return LOOPNE; // Synonym
+    if (strcasecmp(instruction, "SETF") == 0) return SETF;
+    if (strcasecmp(instruction, "CLRF") == 0) return CLRF;
+    if (strcasecmp(instruction, "BT") == 0) return BT;
+    if (strcasecmp(instruction, "BSET") == 0) return BSET;
+    if (strcasecmp(instruction, "BCLR") == 0) return BCLR;
+    if (strcasecmp(instruction, "BTOG") == 0) return BTOG;
+    if (strcasecmp(instruction, "STRCMP") == 0) return STRCMP;
+    if (strcasecmp(instruction, "STRLEN") == 0) return STRLEN;
+    if (strcasecmp(instruction, "STRCPY") == 0) return STRCPY;
+    if (strcasecmp(instruction, "MEMCPY") == 0) return MEMCPY;
+    if (strcasecmp(instruction, "MEMSET") == 0) return MEMSET;
+    if (strcasecmp(instruction, "CPUID") == 0) return CPUID;
+    if (strcasecmp(instruction, "BSWAP") == 0) return BSWAP;
+    if (strcasecmp(instruction, "SAR") == 0) return SAR;
+    if (strcasecmp(instruction, "RVD") == 0) return RVD;
+    if (strcasecmp(instruction, "INCMEM") == 0) return INC_MEM;
+    if (strcasecmp(instruction, "DECMEM") == 0) return DEC_MEM;
+    if (strcasecmp(instruction, "JO") == 0) return JO;
+    if (strcasecmp(instruction, "JNO") == 0) return JNO;
+    if (strcasecmp(instruction, "JGE") == 0) return JGE;
+    if (strcasecmp(instruction, "JLE") == 0) return JLE;
     return INVALID_INST;
 }
 

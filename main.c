@@ -882,8 +882,17 @@ int loadProgram(const char* filename, char* program[], int max_size) {
     memset(temp_program, 0, max_size * sizeof(char*));
     int temp_line_count = 0;
 
-    DefineEntry define_map[MAX_DEFINES];
+    DefineEntry* define_map = NULL;
     int define_count = 0;
+
+    define_map = malloc(MAX_DEFINES * sizeof(DefineEntry));
+    if (define_map == NULL) {
+        fprintf(stderr, "Error: Memory allocation failed for define_map.\n");
+        free(temp_program);
+        fclose(file);
+        return -2;
+    }
+
 
     while (fgets(buffer, sizeof(buffer), file) != NULL && temp_line_count < max_size) {
         buffer[strcspn(buffer, "\n")] = 0;
@@ -939,6 +948,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             char* error_msg = start + 6;
             while (isspace((unsigned char)*error_msg)) error_msg++;
             fprintf(stderr, "Error: %s\n", error_msg);
+            free(define_map);
             for (int i = 0; i < temp_line_count; ++i) {
                 if (temp_program[i]) free(temp_program[i]);
             }
@@ -950,9 +960,11 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         if (strlen(start) == 0) {
             continue;
         }
+
         temp_program[temp_line_count] = strdup_portable(start);
         if (!temp_program[temp_line_count]) {
             fprintf(stderr, "Error: Memory allocation failed during program load.\n");
+            free(define_map);
             for (int i = 0; i < temp_line_count; ++i) free(temp_program[i]);
             free(temp_program);
             fclose(file);
@@ -964,22 +976,17 @@ int loadProgram(const char* filename, char* program[], int max_size) {
 
     if (temp_line_count >= max_size && fgets(buffer, sizeof(buffer), file) != NULL) {
         fprintf(stderr, "Error: Program exceeds maximum size of %d lines.\n", max_size);
+        free(define_map);
         for (int i = 0; i < temp_line_count; ++i) free(temp_program[i]);
         free(temp_program);
         return -3;
     }
 
-    if (temp_line_count >= max_size && fgets(buffer, sizeof(buffer), file) != NULL) {
-        fprintf(stderr, "Error: Program exceeds maximum size of %d lines.\n", max_size);
-        for (int i = 0; i < temp_line_count; ++i) free(temp_program[i]);
-        return -3;
-    }
-
     for (int i = 0; i < temp_line_count; i++) {
         char* original_line = temp_program[i];
-        if (!original_line) continue; 
+        if (!original_line) continue;
 
-        char processed_line[MAX_LINE_LENGTH * 2] = { 0 }; 
+        char processed_line[MAX_LINE_LENGTH * 2] = { 0 };
         char token_buffer[MAX_LINE_LENGTH];
         char* current_pos = original_line;
         bool line_changed = false;
@@ -992,10 +999,11 @@ int loadProgram(const char* filename, char* program[], int max_size) {
 
         if (first_token_end) {
             strncpy(processed_line, original_line, first_token_end - original_line);
+            processed_line[first_token_end - original_line] = '\0';
             current_pos = first_token_end;
         }
         else {
-            strcat(processed_line, original_line);
+            strcpy(processed_line, original_line);
             current_pos = original_line + strlen(original_line);
         }
 
@@ -1034,15 +1042,16 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             token_buffer[token_len] = '\0';
 
             bool replaced = false;
-            if (token_buffer[0] != 'R' || !isdigit((unsigned char)token_buffer[1])) {
-                if (!isdigit((unsigned char)token_buffer[0]) && token_buffer[0] != '-') {
-                    for (int j = 0; j < define_count; j++) {
-                        if (strcmp(token_buffer, define_map[j].name) == 0) {
-                            strcat(processed_line, define_map[j].value);
-                            replaced = true;
-                            line_changed = true;
-                            break;
-                        }
+            if (!((token_buffer[0] == 'R' || token_buffer[0] == 'r') && isdigit((unsigned char)token_buffer[1])) &&
+                !(isdigit((unsigned char)token_buffer[0]) || (token_buffer[0] == '-' && isdigit((unsigned char)token_buffer[1]))) &&
+                !(token_buffer[0] == '0' && (token_buffer[1] == 'x' || token_buffer[1] == 'X')))
+            {
+                for (int j = 0; j < define_count; j++) {
+                    if (strcmp(token_buffer, define_map[j].name) == 0) {
+                        strcat(processed_line, define_map[j].value);
+                        replaced = true;
+                        line_changed = true;
+                        break;
                     }
                 }
             }
@@ -1057,21 +1066,32 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             temp_program[i] = strdup_portable(processed_line);
             if (!temp_program[i]) {
                 fprintf(stderr, "Error: Memory allocation failed during define substitution.\n");
+                free(define_map);
+                for (int k = 0; k < i; ++k) {
+                    if (temp_program[k]) free(temp_program[k]);
+                }
+                free(temp_program);
+                return -2;
             }
         }
     }
+
 
     typedef struct {
         char label_name[64];
         int line_number;
     } LabelEntry;
-    LabelEntry* label_map = (LabelEntry*)malloc(max_size * sizeof(LabelEntry));
+
+    LabelEntry* label_map = NULL;
+    label_map = malloc(max_size * sizeof(LabelEntry));
     if (!label_map) {
         fprintf(stderr, "Error: Memory allocation failed for label_map.\n");
+        free(define_map);
         for (int i = 0; i < temp_line_count; ++i) if (temp_program[i]) free(temp_program[i]);
         free(temp_program);
         return -2;
     }
+
     int label_count = 0;
     int final_program_size = 0;
 
@@ -1109,7 +1129,11 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                         break;
                     }
                 }
-                if (duplicate) continue;
+                if (duplicate) {
+                    free(temp_program[i]);
+                    temp_program[i] = NULL;
+                    continue;
+                }
 
                 strcpy(label_map[label_count].label_name, label_start);
                 label_map[label_count].line_number = final_program_size + 1;
@@ -1118,20 +1142,37 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                 char* code_after_label = colon_pos + 1;
                 while (isspace((unsigned char)*code_after_label)) code_after_label++;
                 if (strlen(code_after_label) > 0) {
-                    program[final_program_size] = strdup_portable(code_after_label);
-                    if (!program[final_program_size]) {
-                        fprintf(stderr, "Error: Memory allocation failed for code after label.\n");
-                        return -2;
+                    if (final_program_size < max_size) {
+                        program[final_program_size] = strdup_portable(code_after_label);
+                        if (!program[final_program_size]) {
+                            fprintf(stderr, "Error: Memory allocation failed for code after label.\n");
+                            free(define_map);
+                            free(label_map);
+                            for (int k = 0; k < final_program_size; ++k) if (program[k]) free(program[k]);
+                            for (int k = i; k < temp_line_count; ++k) if (temp_program[k]) free(temp_program[k]);
+                            free(temp_program);
+                            return -2;
+                        }
+                        final_program_size++;
                     }
-                    final_program_size++;
+                    else {
+                        fprintf(stderr, "Error: Program size exceeded while processing code after label.\n");
+                        free(define_map);
+                        free(label_map);
+                        for (int k = 0; k < final_program_size; ++k) if (program[k]) free(program[k]);
+                        for (int k = i; k < temp_line_count; ++k) if (temp_program[k]) free(temp_program[k]);
+                        free(temp_program);
+                        return -3;
+                    }
                 }
-
             }
             else if (strlen(label_start) > 0) {
                 fprintf(stderr, "Warning: Label '%s' near line %d is too long or invalid. Ignored.\n", label_start, i + 1);
             }
+
             free(temp_program[i]);
             temp_program[i] = NULL;
+
         }
         else {
             if (final_program_size < max_size) {
@@ -1140,38 +1181,52 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             }
             else {
                 fprintf(stderr, "Error: Program size exceeded during label processing.\n");
-                for (int j = i; j < temp_line_count; ++j) if (temp_program[j]) free(temp_program[j]);
-                free(temp_program);
+                free(define_map);
                 free(label_map);
+                for (int k = 0; k < final_program_size; ++k) if (program[k]) free(program[k]);
+                for (int k = i; k < temp_line_count; ++k) if (temp_program[k]) free(temp_program[k]);
+                free(temp_program);
                 return -3;
             }
         }
     }
 
+
     for (int i = 0; i < final_program_size; i++) {
         char* instruction = program[i];
         char op[10];
-        char operand1_str[MAX_LINE_LENGTH];
-        char operand2_str[MAX_LINE_LENGTH];
+        char operand1_str[MAX_LINE_LENGTH] = { 0 };
+        char operand2_str[MAX_LINE_LENGTH] = { 0 };
 
         int scan_count = sscanf(instruction, "%9s %[^,], %s", op, operand1_str, operand2_str);
-        if (scan_count < 2) {
-            continue;
+        if (scan_count < 1) {
+            scan_count = sscanf(instruction, "%9s %s", op, operand1_str);
+            if (scan_count < 1) continue;
         }
+
 
         InstructionType inst = parseInstruction(op);
-
         char* label_operand_str = NULL;
 
+
         if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO || inst == JGE || inst == JLE) {
-            if (scan_count >= 2) label_operand_str = operand1_str;
+            if (sscanf(instruction, "%*s %s", operand1_str) == 1) {
+                label_operand_str = operand1_str;
+            }
         }
         else if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
-            if (scan_count == 3) label_operand_str = operand2_str;
+            if (sscanf(instruction, "%*s %*[^,], %s", operand2_str) == 1) {
+                label_operand_str = operand2_str;
+            }
         }
 
 
-        if (label_operand_str != NULL && !isdigit((unsigned char)label_operand_str[0]) && label_operand_str[0] != '-') {
+        if (label_operand_str != NULL && strlen(label_operand_str) > 0 &&
+            !isdigit((unsigned char)label_operand_str[0]) &&
+            !(label_operand_str[0] == '-' && isdigit((unsigned char)label_operand_str[1])) &&
+            !((label_operand_str[0] == 'R' || label_operand_str[0] == 'r') && isdigit((unsigned char)label_operand_str[1]))
+            )
+        {
             int target_line = -1;
             for (int j = 0; j < label_count; j++) {
                 if (strcmp(label_map[j].label_name, label_operand_str) == 0) {
@@ -1181,36 +1236,53 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             }
 
             if (target_line != -1) {
-                char new_instruction[MAX_LINE_LENGTH];  
+                char new_instruction[MAX_LINE_LENGTH];
                 if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
-                    snprintf(new_instruction, sizeof(new_instruction), "%s %s, %d", op, operand1_str, target_line);
+                    char reg_operand_str[64];
+                    sscanf(instruction, "%*s %63[^,]", reg_operand_str);
+                    snprintf(new_instruction, sizeof(new_instruction), "%s %s, %d", op, reg_operand_str, target_line);
                 }
                 else {
                     snprintf(new_instruction, sizeof(new_instruction), "%s %d", op, target_line);
                 }
 
+
                 free(program[i]);
                 program[i] = strdup_portable(new_instruction);
                 if (!program[i]) {
                     fprintf(stderr, "Error: Memory allocation failed during label resolution.\n");
+                    free(define_map);
+                    free(label_map);
+                    for (int k = 0; k < i; ++k) if (program[k]) free(program[k]);
                     return -2;
                 }
             }
             else {
                 fprintf(stderr, "Error: Label '%s' not found (used in line %d: '%s')\n", label_operand_str, i + 1, instruction);
+                free(define_map);
+                free(label_map);
+                for (int k = 0; k <= i; ++k) if (program[k]) free(program[k]);
+                return -5;
             }
         }
         else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == JO || inst == JNO || inst == JGE || inst == JLE)) {
-            fprintf(stderr, "Error: Missing or invalid label operand for %s instruction at line %d: '%s'\n", op, i + 1, instruction);
+            char operand_buf[MAX_LINE_LENGTH];
+            if (sscanf(instruction, "%*s %s", operand_buf) != 1 || strlen(operand_buf) == 0) {
+                fprintf(stderr, "Error: Missing or invalid label/line number operand for %s instruction at line %d: '%s'\n", op, i + 1, instruction);
+                free(define_map);
+                free(label_map);
+                for (int k = 0; k <= i; ++k) if (program[k]) free(program[k]);
+                return -6;
+            }
         }
     }
 
     for (int i = 0; i < temp_line_count; ++i) {
         if (temp_program[i]) free(temp_program[i]);
     }
-
     free(temp_program);
     free(label_map);
+    free(define_map);
 
     return final_program_size;
 }
@@ -3823,7 +3895,7 @@ void audioCallback(void* userdata, Uint8* stream, int len) {
 }
 
 int main(void) {
-    char* program[MAX_PROGRAM_SIZE];
+    char** program = NULL;
     char filename[256];
     int program_size = 0;
     VirtualCPU* cpu_ptr = NULL;
@@ -3835,6 +3907,13 @@ int main(void) {
         fprintf(stderr, "Invalid input.\n");
         return 1;
     }
+
+    program = malloc(MAX_PROGRAM_SIZE * sizeof(char*));
+    if (program == NULL) {
+        fprintf(stderr, "Fatal: Failed to allocate memory for program array.\n");
+        return 1;
+    }
+    memset(program, 0, MAX_PROGRAM_SIZE * sizeof(char*));
 
     printf("Allocating Virtual CPU on heap...\n");
     cpu_ptr = (VirtualCPU*)malloc(sizeof(VirtualCPU));
@@ -3890,10 +3969,16 @@ int main(void) {
 
     printf("Cleaning up...\n");
     for (int i = 0; i < program_size; i++) {
-        free(program[i]);
-        program[i] = NULL;
+        if (program[i] != NULL) {
+            free(program[i]);
+            program[i] = NULL;
+        }
     }
     printf("Program memory freed.\n");
+
+    free(program);
+    program = NULL;
+    printf("Program array memory freed.\n");
 
     if (sdl_initialized) {
         cleanup_sdl(cpu_ptr);

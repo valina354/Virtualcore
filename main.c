@@ -418,7 +418,7 @@ void cleanup_sdl(VirtualCPU* cpu);
 InstructionType parseInstruction(const char* instruction);
 int loadProgram(const char* filename, char* program[], int max_size);
 
-void execute(VirtualCPU* cpu, char* program[], int program_size);
+void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode);
 void interrupt(VirtualCPU* cpu, int interrupt_id);
 void updateScreen(VirtualCPU* cpu);
 
@@ -2273,13 +2273,17 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
     }
 }
 
-void execute(VirtualCPU* cpu, char* program[], int program_size) {
+void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode) {
     bool running = true;
     while (running && cpu->ip < program_size && !cpu->shutdown_requested) {
         char* current_instruction_line = program[cpu->ip];
         char op_str[10];
         int operands[3] = { 0, 0, 0 };
         char str_operand[MAX_LINE_LENGTH] = { 0 };
+
+        if (debug_mode) {
+            printf("[DEBUG IP:%d] %s\n", cpu->ip + 1, current_instruction_line);
+        }
 
         int parsed_items = sscanf(current_instruction_line, "%9s", op_str);
         if (parsed_items < 1) {
@@ -3912,6 +3916,9 @@ int main(void) {
         return 1;
     }
 
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+
     program = malloc(MAX_PROGRAM_SIZE * sizeof(char*));
     if (program == NULL) {
         fprintf(stderr, "Fatal: Failed to allocate memory for program array.\n");
@@ -3968,8 +3975,25 @@ int main(void) {
     }
     printf("Program loaded successfully (%d lines).\n", program_size);
 
+    bool debug_mode = false;
+    char debug_choice[10];
+    printf("Enable debug mode? (y/n): ");
+    fflush(stdout);
+    if (fgets(debug_choice, sizeof(debug_choice), stdin) != NULL) {
+        if (debug_choice[0] == 'y' || debug_choice[0] == 'Y') {
+            debug_mode = true;
+            printf("Debug mode enabled.\n");
+        }
+        else {
+            printf("Debug mode disabled.\n");
+        }
+    }
+    else {
+        fprintf(stderr, "Warning: Could not read debug mode choice, defaulting to disabled.\n");
+    }
+
     printf("Starting execution...\n");
-    execute(cpu_ptr, program, program_size);
+    execute(cpu_ptr, program, program_size, debug_mode);
 
     printf("Cleaning up...\n");
     for (int i = 0; i < program_size; i++) {

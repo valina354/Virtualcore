@@ -839,9 +839,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "PUSHF") == 0) return PUSHF;
     if (strcasecmp(instruction, "POPF") == 0) return POPF;
     if (strcasecmp(instruction, "LOOPE") == 0) return LOOPE;
-    if (strcasecmp(instruction, "LOOPZ") == 0) return LOOPE; // Synonym
     if (strcasecmp(instruction, "LOOPNE") == 0) return LOOPNE;
-    if (strcasecmp(instruction, "LOOPNZ") == 0) return LOOPNE; // Synonym
     if (strcasecmp(instruction, "SETF") == 0) return SETF;
     if (strcasecmp(instruction, "CLRF") == 0) return CLRF;
     if (strcasecmp(instruction, "BT") == 0) return BT;

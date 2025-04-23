@@ -187,8 +187,8 @@ CMP Rx, Ry
 Syntax: CMP <R1>, <R2>
 Description: Compares the values in R1 and R2 (by calculating R1 - R2) and sets the Z, G, L, and O flags accordingly. The result of the subtraction is discarded.
 Flags Affected: ZF, GF, LF, OF.
-JNE line/label (Jump Not Equal)
-Syntax: JNE <target_line/label>
+JMPNE line/label (Jump Not Equal)
+Syntax: JMPNE <target_line/label>
 Description: Jumps to the target if the Zero Flag (ZF) is not set (i.e., CMP result was non-zero).
 Flags Affected: None.
 JEQ line/label (Jump Equal)
@@ -203,20 +203,20 @@ JMPL line/label (Jump Less - Signed Less Than)
 Syntax: JMPL <target_line/label>
 Description: Jumps to the target if the Less Flag (LF) is set (i.e., CMP R1, R2 resulted in R1 < R2, signed).
 Flags Affected: None.
-JGE line/label (Jump Greater or Equal - Signed)
-Syntax: JGE <target_line/label>
+JMPGE line/label (Jump Greater or Equal - Signed)
+Syntax: JMPGE <target_line/label>
 Description: Jumps to the target if the Less Flag (LF) is not set (i.e., CMP R1, R2 resulted in R1 >= R2, signed).
 Flags Affected: None.
-JLE line/label (Jump Less or Equal - Signed)
-Syntax: JLE <target_line/label>
+JJMPLE line/label (Jump Less or Equal - Signed)
+Syntax: JMPLE <target_line/label>
 Description: Jumps to the target if the Greater Flag (GF) is not set (i.e., CMP R1, R2 resulted in R1 <= R2, signed).
 Flags Affected: None.
-JO line/label (Jump Overflow)
-Syntax: JO <target_line/label>
+JMPO line/label (Jump Overflow)
+Syntax: JMPO <target_line/label>
 Description: Jumps to the target if the Overflow Flag (OF) is set.
 Flags Affected: None.
 JNO line/label (Jump No Overflow)
-Syntax: JNO <target_line/label>
+Syntax: JMPNO <target_line/label>
 Description: Jumps to the target if the Overflow Flag (OF) is not set.
 Flags Affected: None.
 CALL line/label

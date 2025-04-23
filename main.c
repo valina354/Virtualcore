@@ -828,6 +828,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "STRMOV") == 0) return STRMOV;
     if (strcasecmp(instruction, "RND") == 0) return RND;
     if (strcasecmp(instruction, "JEQ") == 0) return JEQ;
+    if (strcasecmp(instruction, "JMPEQ") == 0) return JEQ;
     if (strcasecmp(instruction, "MOD") == 0) return MOD;
     if (strcasecmp(instruction, "SQRT") == 0) return SQRT;
     if (strcasecmp(instruction, "ABS") == 0) return ABS;

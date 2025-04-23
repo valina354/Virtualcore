@@ -191,8 +191,8 @@ JMPNE line/label (Jump Not Equal)
 Syntax: JMPNE <target_line/label>
 Description: Jumps to the target if the Zero Flag (ZF) is not set (i.e., CMP result was non-zero).
 Flags Affected: None.
-JEQ line/label (Jump Equal)
-Syntax: JEQ <target_line/label>
+JMPE line/label (Jump Equal)
+Syntax: JMPE <target_line/label>
 Description: Jumps to the target if the Zero Flag (ZF) is set (i.e., CMP result was zero).
 Flags Affected: None.
 JMPH line/label (Jump More/Higher - Signed Greater Than)

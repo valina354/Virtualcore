@@ -3329,7 +3329,12 @@ void popf_op(VirtualCPU* cpu) {
 }
 
 void setf_op(VirtualCPU* cpu, int flag_mask) {
-    cpu->flags |= flag_mask;
+    if (flag_mask == 0) {
+        cpu->flags |= (FLAG_ZERO | FLAG_GREATER | FLAG_LESS | FLAG_OVERFLOW);
+    }
+    else {
+        cpu->flags |= flag_mask;
+    }
 }
 
 void clrf_op(VirtualCPU* cpu, int flag_mask) {

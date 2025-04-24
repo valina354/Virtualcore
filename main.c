@@ -298,7 +298,7 @@ typedef enum {
     ROR, STRMOV, RND, JEQ, MOD, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
-    INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO,
+    INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO, ELI, DLI,
     INVALID_INST
 } InstructionType;
 
@@ -402,6 +402,7 @@ typedef struct {
     int screen_on;
 
     bool shutdown_requested;
+    bool interrupts_enabled;
 
     FILE* disk_image_fp;
     long long disk_image_size;
@@ -480,6 +481,8 @@ void inc_mem_op(VirtualCPU* cpu, int addr_reg);
 void dec_mem_op(VirtualCPU* cpu, int addr_reg);
 void loopo_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void loopno_op(VirtualCPU* cpu, int counter_reg, int target_line);
+void eli_op(VirtualCPU* cpu);
+void dli_op(VirtualCPU* cpu);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -591,6 +594,7 @@ bool init_cpu(VirtualCPU* cpu) {
     cpu->flags = 0;
     cpu->sp = MEMORY_SIZE;
     cpu->shutdown_requested = false;
+    cpu->interrupts_enabled = true;
 
     cpu->audioDevice = 0;
     cpu->frequency = 440.0;
@@ -870,6 +874,8 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "JMPLE") == 0) return JLE;
     if (strcasecmp(instruction, "LOOPO") == 0) return LOOPO;
     if (strcasecmp(instruction, "LOOPNO") == 0) return LOOPNO;
+    if (strcasecmp(instruction, "ELI") == 0) return ELI;
+    if (strcasecmp(instruction, "DLI") == 0) return DLI;
     return INVALID_INST;
 }
 
@@ -2407,7 +2413,13 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             break;
         case INTR:
             if (sscanf(current_instruction_line, "%*s %x", &operands[0]) == 1) {
-                interrupt(cpu, operands[0]);
+                if (cpu->interrupts_enabled) {
+                    interrupt(cpu, operands[0]);
+                }
+                else
+                {
+                    exit(0);
+                }
             }
             else { fprintf(stderr, "Error: Invalid INT format at line %d\n", cpu->ip + 1); }
             break;
@@ -2945,6 +2957,14 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             else {
                 fprintf(stderr, "Error: Invalid LOOPNO format at line %d (Expected: LOOPNO Rx, <line_number/label>)\n", cpu->ip + 1);
             }
+            break;
+
+        case ELI:
+            eli_op(cpu);
+            break;
+
+        case DLI:
+            dli_op(cpu);
             break;
 
         case INVALID_INST:
@@ -3911,6 +3931,14 @@ void loopno_op(VirtualCPU* cpu, int counter_reg, int target_line) {
     if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_OVERFLOW) == 0) {
         jmp(cpu, target_line);
     }
+}
+
+void eli_op(VirtualCPU* cpu) {
+    cpu->interrupts_enabled = true;
+}
+
+void dli_op(VirtualCPU* cpu) {
+    cpu->interrupts_enabled = false;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

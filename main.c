@@ -301,7 +301,7 @@ typedef enum {
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
     INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO, ELI, DLI,
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
-    FLOAD, FSTORE, FINC, FDEC,
+    FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP,
     INVALID_INST
 } InstructionType;
 
@@ -503,6 +503,8 @@ void fload(VirtualCPU* cpu, int dest_freg, int addr_src_reg);
 void fstore(VirtualCPU* cpu, int addr_dest_reg, int src_freg);
 void finc(VirtualCPU* cpu, int freg);
 void fdec(VirtualCPU* cpu, int freg);
+void fpush(VirtualCPU* cpu, int freg);
+void fpop(VirtualCPU* cpu, int freg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -914,6 +916,8 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "FSTORE") == 0) return FSTORE;
     if (strcasecmp(instruction, "FINC") == 0) return FINC;
     if (strcasecmp(instruction, "FDEC") == 0) return FDEC;
+    if (strcasecmp(instruction, "FPUSH") == 0) return FPUSH;
+    if (strcasecmp(instruction, "FPOP") == 0) return FPOP;
     return INVALID_INST;
 }
 
@@ -3151,6 +3155,24 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             break;
 
+        case FPUSH:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                fpush(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FPUSH format at line %d (Expected: FPUSH Freg)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FPOP:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                fpop(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FPOP format at line %d (Expected: FPOP Freg)\n", cpu->ip + 1);
+            }
+            break;
+
         case INVALID_INST:
         default:
             fprintf(stderr, "Error: Unknown or invalid instruction '%s' at line %d\n", op_str, cpu->ip + 1);
@@ -4394,6 +4416,62 @@ void fdec(VirtualCPU* cpu, int freg) {
         cpu->flags &= ~FLAG_OVERFLOW;
     }
     cpu->f_registers[freg] = result;
+}
+
+#define SLOTS_PER_DOUBLE (sizeof(double) / sizeof(int))
+
+void fpush(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FPUSH: Invalid F register F%d\n", freg);
+        return;
+    }
+    if (SLOTS_PER_DOUBLE <= 0 || sizeof(double) % sizeof(int) != 0) {
+        fprintf(stderr, "Error FPUSH: Incompatible double/int sizes for stack.\n");
+        return;
+    }
+
+    int sp = cpu->sp;
+    sp -= SLOTS_PER_DOUBLE;
+
+    if (sp < 0) {
+        fprintf(stderr, "Error: Stack Overflow during FPUSH at line %d\n", cpu->ip + 1);
+        cpu->sp = 0;
+        return;
+    }
+
+    if (!isValidMem(sp) || !isValidMem(sp + SLOTS_PER_DOUBLE - 1)) {
+        fprintf(stderr, "Error: Stack Pointer range [%d - %d] out of bounds during FPUSH.\n", sp, sp + SLOTS_PER_DOUBLE - 1);
+        return;
+    }
+
+    memcpy(&cpu->memory[sp], &cpu->f_registers[freg], sizeof(double));
+    cpu->sp = sp;
+}
+
+void fpop(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FPOP: Invalid F register F%d\n", freg);
+        return;
+    }
+    if (SLOTS_PER_DOUBLE <= 0 || sizeof(double) % sizeof(int) != 0) {
+        fprintf(stderr, "Error FPOP: Incompatible double/int sizes for stack.\n");
+        return;
+    }
+
+    int sp = cpu->sp;
+    if (sp + SLOTS_PER_DOUBLE > MEMORY_SIZE) {
+        fprintf(stderr, "Error: Stack Underflow during FPOP at line %d (SP=%d)\n", cpu->ip + 1, sp);
+        cpu->sp = MEMORY_SIZE;
+        return;
+    }
+
+    if (!isValidMem(sp) || !isValidMem(sp + SLOTS_PER_DOUBLE - 1)) {
+        fprintf(stderr, "Error: Stack Pointer range [%d - %d] out of bounds during FPOP.\n", sp, sp + SLOTS_PER_DOUBLE - 1);
+        return;
+    }
+
+    memcpy(&cpu->f_registers[freg], &cpu->memory[sp], sizeof(double));
+    cpu->sp = sp + SLOTS_PER_DOUBLE;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

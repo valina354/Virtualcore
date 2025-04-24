@@ -1,4 +1,4 @@
-; program that counts fro3m 0 to 100 then resets cpu
+; program that counts from 0 to 100 then resets cpu
 
 main:
 	CALL enable_interrupts

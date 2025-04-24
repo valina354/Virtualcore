@@ -302,6 +302,7 @@ typedef enum {
     INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO, ELI, DLI,
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
     FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG,
+    CALLH, CALLL, CALLE, CALLNE, CALLO, CALLNO, CALLHE, CALLLE,
     INVALID_INST
 } InstructionType;
 
@@ -923,6 +924,14 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "FPOP") == 0) return FPOP;
     if (strcasecmp(instruction, "FCLR") == 0) return FCLR;
     if (strcasecmp(instruction, "FXCHG") == 0) return FXCHG;
+    if (strcasecmp(instruction, "CALLH") == 0) return CALLH;
+    if (strcasecmp(instruction, "CALLL") == 0) return CALLL;
+    if (strcasecmp(instruction, "CALLE") == 0) return CALLE;
+    if (strcasecmp(instruction, "CALLNE") == 0) return CALLNE;
+    if (strcasecmp(instruction, "CALLO") == 0) return CALLO;
+    if (strcasecmp(instruction, "CALLNO") == 0) return CALLNO;
+    if (strcasecmp(instruction, "CALLHE") == 0) return CALLHE;
+    if (strcasecmp(instruction, "CALLLE") == 0) return CALLLE;
     return INVALID_INST;
 }
 
@@ -1270,14 +1279,16 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         char* label_operand_str = NULL;
 
 
-        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO || inst == JGE || inst == JLE) {
+        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO || inst == JGE || inst == JLE ||
+            inst == CALLH || inst == CALLL || inst == CALLE || inst == CALLNE || inst == CALLO || inst == CALLNO || inst == CALLHE || inst == CALLLE)
+        {
             if (sscanf(instruction, "%*s %s", operand1_str) == 1) {
                 label_operand_str = operand1_str;
             }
         }
-        else if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
+        else if (inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO) {
             if (sscanf(instruction, "%*s %*[^,], %s", operand2_str) == 1) {
-                label_operand_str = operand2_str;
+                label_operand_str =     operand2_str;
             }
         }
 
@@ -1298,7 +1309,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
 
             if (target_line != -1) {
                 char new_instruction[MAX_LINE_LENGTH];
-                if (inst == LOOP || inst == LOOPE || inst == LOOPNE) {
+                if (inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO) {
                     char reg_operand_str[64];
                     sscanf(instruction, "%*s %63[^,]", reg_operand_str);
                     snprintf(new_instruction, sizeof(new_instruction), "%s %s, %d", op, reg_operand_str, target_line);
@@ -1326,7 +1337,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                 return -5;
             }
         }
-        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == JO || inst == JNO || inst == JGE || inst == JLE)) {
+        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO || inst == JGE || inst == JLE || inst == CALLH || inst == CALLL || inst == CALLE || inst == CALLNE || inst == CALLO || inst == CALLNO || inst == CALLHE || inst == CALLLE || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO)) {
             char operand_buf[MAX_LINE_LENGTH];
             if (sscanf(instruction, "%*s %s", operand_buf) != 1 || strlen(operand_buf) == 0) {
                 fprintf(stderr, "Error: Missing or invalid label/line number operand for %s instruction at line %d: '%s'\n", op, i + 1, instruction);
@@ -2675,6 +2686,93 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             break;
         case RET:
             ret(cpu);
+            break;
+        case CALLH:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_GREATER) != 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLH format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case CALLL:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_LESS) != 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLL format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case CALLE:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_ZERO) != 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLE format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case CALLNE:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_ZERO) == 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLNE format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case CALLO:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_OVERFLOW) != 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLO format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case CALLNO:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_OVERFLOW) == 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLNO format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case CALLHE:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_LESS) == 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLHE format at line %d\n", cpu->ip + 1);
+            }
+            break;
+
+        case CALLLE:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_GREATER) == 0) {
+                    call(cpu, operands[0]);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CALLLE format at line %d\n", cpu->ip + 1);
+            }
             break;
         case RND:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {

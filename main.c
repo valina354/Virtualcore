@@ -332,6 +332,7 @@ typedef struct {
 #define INT_GETXY           0x0B // Get console cursor pos (R0=Col, R1=Row) [Win32 only reliable]
 #define INT_GET_CONSOLE_SIZE 0x0C // Get console dimensions (R0=Width, R1=Height)
 #define INT_SET_CONSOLE_TITLE 0x0D // Set console window title (R0=title_addr)
+#define INT_PRINT_FREG0 0x0E // Print floating point in F0
 
 // Graphics Output / Control
 #define INT_DRAW_PIXEL      0x10 // Draw pixel at (R0, R1) with palette color index R2
@@ -375,8 +376,6 @@ typedef struct {
 #define INT_DISK_READ       0x60 // Read sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_WRITE      0x61 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_INFO       0x62 // Get disk info -> R0=TotalSectors, R1=SectorSize
-
-#define INT_PRINT_FREG0     0x70
 
 #define DISK_IMAGE_FILENAME "disk.img"
 #define DISK_IMAGE_SIZE_BYTES (16 * 1024 * 1024) // 16 MB
@@ -1616,6 +1615,13 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
 #endif
     }
     break;
+    case INT_PRINT_FREG0: // 0x0E
+        if (!isValidFReg(0)) {
+            fprintf(stderr, "Error (INT 0x0E): F0 is not a valid F register.\n");
+            break;
+        }
+        printf("%f\n", cpu->f_registers[0]);
+        break;
 
     case INT_DRAW_PIXEL: // 0x10
     {
@@ -2314,13 +2320,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         }
     }
     break;
-    case INT_PRINT_FREG0: // 0x70
-        if (!isValidFReg(0)) {
-            fprintf(stderr, "Error (INT 0x70): F0 is not a valid F register (This should not happen).\n");
-            break;
-        }
-        printf("%f\n", cpu->f_registers[0]);
-        break;
 
     default:
         fprintf(stderr, "Error: Unknown interrupt code 0x%X at line %d\n", interrupt_id, cpu->ip + 1);

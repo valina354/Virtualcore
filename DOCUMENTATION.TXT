@@ -580,3 +580,6 @@ Interrupts provide access to system services like I/O, graphics, audio, and time
 0x62 (INT_DISK_INFO)
     Description: Gets information about the simulated disk.
     Input: None. Output: R0 = Total number of sectors on the disk, R1 = Size of each sector in bytes. Returns -1/0 if disk is not open.
+0x63 (INT_DISK_FORMAT)
+    Description: Formats the simulated disk.
+    Input: None. Output: R0 = Status

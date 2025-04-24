@@ -2001,8 +2001,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         cpu->speaker_on = old_speaker_on;
         cpu->frequency = old_freq;
         cpu->volume = old_vol;
-
-        fprintf(stdout, "CPU Reset executed (INT 0x40).\n");
     }
     break;
     case INT_SYSTEM_SHUTDOWN: // 0x41

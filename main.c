@@ -298,7 +298,7 @@ typedef enum {
     ROR, STRMOV, RND, JEQ, MOD, SQRT, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
-    INC_MEM, DEC_MEM, JO, JNO, JGE, JLE,
+    INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO,
     INVALID_INST
 } InstructionType;
 
@@ -478,6 +478,8 @@ void sar_op(VirtualCPU* cpu, int reg, int count);
 void rvd_op(VirtualCPU* cpu, int reg);
 void inc_mem_op(VirtualCPU* cpu, int addr_reg);
 void dec_mem_op(VirtualCPU* cpu, int addr_reg);
+void loopo_op(VirtualCPU* cpu, int counter_reg, int target_line);
+void loopno_op(VirtualCPU* cpu, int counter_reg, int target_line);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -866,6 +868,8 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "JMPNO") == 0) return JNO;
     if (strcasecmp(instruction, "JMPGE") == 0) return JGE;
     if (strcasecmp(instruction, "JMPLE") == 0) return JLE;
+    if (strcasecmp(instruction, "LOOPO") == 0) return LOOPO;
+    if (strcasecmp(instruction, "LOOPNO") == 0) return LOOPNO;
     return INVALID_INST;
 }
 
@@ -2925,6 +2929,23 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 fprintf(stderr, "Error: Invalid JLE format at line %d\n", cpu->ip + 1);
             }
             break;
+        case LOOPO:
+            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
+                loopo_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid LOOPO format at line %d (Expected: LOOPO Rx, <line_number/label>)\n", cpu->ip + 1);
+            }
+            break;
+
+        case LOOPNO:
+            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
+                loopno_op(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid LOOPNO format at line %d (Expected: LOOPNO Rx, <line_number/label>)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -3864,6 +3885,32 @@ void dec_mem_op(VirtualCPU* cpu, int addr_reg) {
         cpu->flags &= ~FLAG_OVERFLOW;
     }
     cpu->memory[address] = new_value;
+}
+
+void loopo_op(VirtualCPU* cpu, int counter_reg, int target_line) {
+    if (!isValidReg(counter_reg)) {
+        fprintf(stderr, "Error LOOPO: Invalid counter register R%d at line %d\n", counter_reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->registers[counter_reg]--;
+
+    if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_OVERFLOW) != 0) {
+        jmp(cpu, target_line);
+    }
+}
+
+void loopno_op(VirtualCPU* cpu, int counter_reg, int target_line) {
+    if (!isValidReg(counter_reg)) {
+        fprintf(stderr, "Error LOOPNO: Invalid counter register R%d at line %d\n", counter_reg, cpu->ip + 1);
+        return;
+    }
+
+    cpu->registers[counter_reg]--;
+
+    if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_OVERFLOW) == 0) {
+        jmp(cpu, target_line);
+    }
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

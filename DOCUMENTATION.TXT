@@ -259,6 +259,14 @@ INT imm
 Syntax: INT <interrupt_vector (hex)>
 Description: Triggers a software interrupt specified by the interrupt_vector. See the Interrupts section for details.
 Flags Affected: Depends on the interrupt handler.
+ELI (Enable Interrupts)
+Syntax: ELI
+Description: Sets the internal interrupt enable flag, allowing subsequent INT instructions to execute their corresponding interrupt handlers.
+Flags Affected: None.
+DLI (Disable Interrupts)
+Syntax: DLI 
+Description: Clears the internal interrupt enable flag. Subsequent INT instructions will cause an Access Fault and crash the CPU
+Flags Affected: None.
 Stack Instructions
 PUSH Rx
 Syntax: PUSH <Rsrc>

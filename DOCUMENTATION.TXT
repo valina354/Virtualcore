@@ -229,6 +229,38 @@ CALL line/label
     Syntax: CALL <target_line/label>
     Description: Pushes the address of the next instruction onto the stack, then jumps to the target_line or label. Used for calling subroutines.
     Flags Affected: None.
+CALLH line/label
+    Syntax: CALLH <target_line/label>
+    Description: Calls the subroutine at the target if the Greater Flag (GF) is set.
+    Flags Affected: None.
+CALLL line/label
+    Syntax: CALLL <target_line/label>
+    Description: Calls the subroutine at the target if the Less Flag (LF) is set.
+    Flags Affected: None.
+CALLE line/label
+    Syntax: CALLE <target_line/label>
+    Description: Calls the subroutine at the target if the Zero Flag (ZF) is set.
+    Flags Affected: None.
+CALLNE line/label
+    Syntax: CALLNE <target_line/label>
+    Description: Calls the subroutine at the target if the Zero Flag (ZF) is not set.
+    Flags Affected: None.
+CALLO line/label
+    Syntax: CALLO <target_line/label>
+    Description: Calls the subroutine at the target if the Overflow Flag (OF) is set.
+    Flags Affected: None.
+CALLNO line/label
+    Syntax: CALLNO <target_line/label>
+    Description: Calls the subroutine at the target if the Overflow Flag (OF) is not set.
+    Flags Affected: None.
+CALLHE line/label
+    Syntax: CALLHE <target_line/label>
+    Description: Calls the subroutine at the target if the Less Flag (LF) is not set (Higher or Equal).
+    Flags Affected: None.
+CALLLE line/label
+    Syntax: CALLLE <target_line/label>
+    Description: Calls the subroutine at the target if the Greater Flag (GF) is not set (Lower or Equal).
+    Flags Affected: None.
 RET
     Syntax: RET
     Description: Pops a return address from the stack and jumps to that address. Used to return from subroutines called with CALL.

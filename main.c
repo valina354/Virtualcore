@@ -295,7 +295,7 @@ static const unsigned char vga_font_8x16[256][16] = {
 typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
-    ROR, STRMOV, RND, JEQ, MOD, SQRT, ABS, LOOP, LOAD, STORE, TEST,
+    ROR, STRMOV, RND, JEQ, MOD, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
     INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO, ELI, DLI,
@@ -451,7 +451,6 @@ void rol(VirtualCPU* cpu, int reg1, int count);
 void ror(VirtualCPU* cpu, int reg1, int count);
 void rnd(VirtualCPU* cpu, int reg1);
 void mod_op(VirtualCPU* cpu, int reg1, int reg2);
-void sqrt_op(VirtualCPU* cpu, int reg1);
 void abs_op(VirtualCPU* cpu, int reg1);
 void loop_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void load_op(VirtualCPU* cpu, int dest_reg, int addr_src_reg);
@@ -836,7 +835,6 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "JEQ") == 0) return JEQ;
     if (strcasecmp(instruction, "JMPE") == 0) return JEQ;
     if (strcasecmp(instruction, "MOD") == 0) return MOD;
-    if (strcasecmp(instruction, "SQRT") == 0) return SQRT;
     if (strcasecmp(instruction, "ABS") == 0) return ABS;
     if (strcasecmp(instruction, "LOOP") == 0) return LOOP;
     if (strcasecmp(instruction, "LOAD") == 0) return LOAD;
@@ -2391,12 +2389,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else { fprintf(stderr, "Error: Invalid MOD format at line %d\n", cpu->ip + 1); }
             break;
-        case SQRT:
-            if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
-                sqrt_op(cpu, operands[0]);
-            }
-            else { fprintf(stderr, "Error: Invalid SQRT format at line %d\n", cpu->ip + 1); }
-            break;
         case ABS:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 abs_op(cpu, operands[0]);
@@ -3069,17 +3061,6 @@ void mod_op(VirtualCPU* cpu, int reg1, int reg2) {
     }
     else {
         fprintf(stderr, "Error: Modulo by zero (MOD R%d, R%d) at line %d.\n", reg1, reg2, cpu->ip + 1);
-    }
-}
-
-void sqrt_op(VirtualCPU* cpu, int reg1) {
-    if (!isValidReg(reg1)) { fprintf(stderr, "Error SQRT: Invalid register R%d\n", reg1); return; }
-    cpu->flags &= ~FLAG_OVERFLOW;
-    if (cpu->registers[reg1] >= 0) {
-        cpu->registers[reg1] = (int)sqrt((double)cpu->registers[reg1]);
-    }
-    else {
-        cpu->registers[reg1] = 0;
     }
 }
 

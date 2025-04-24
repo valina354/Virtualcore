@@ -281,7 +281,7 @@ static const unsigned char vga_font_8x16[256][16] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}  // 255 Non-breaking space (same as space)
 };
 
-#define CPU_VERSION 3
+#define CPU_VERSION 4
 #define MEMORY_SIZE (1024 * 1024)
 #define NUM_REGISTERS 32
 #define MAX_PROGRAM_SIZE 65536
@@ -594,7 +594,7 @@ bool init_cpu(VirtualCPU* cpu) {
     cpu->flags = 0;
     cpu->sp = MEMORY_SIZE;
     cpu->shutdown_requested = false;
-    cpu->interrupts_enabled = true;
+    cpu->interrupts_enabled = false;
 
     cpu->audioDevice = 0;
     cpu->frequency = 440.0;

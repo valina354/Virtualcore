@@ -284,6 +284,7 @@ static const unsigned char vga_font_8x16[256][16] = {
 #define CPU_VERSION 4
 #define MEMORY_SIZE (1024 * 1024)
 #define NUM_REGISTERS 32
+#define NUM_F_REGISTERS 8
 #define MAX_PROGRAM_SIZE 65536
 #define MAX_LINE_LENGTH 512
 #define DEFAULT_SCREEN_WIDTH 256
@@ -299,6 +300,8 @@ typedef enum {
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
     INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO, ELI, DLI,
+    FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
+    FLOAD, FSTORE, FINC, FDEC,
     INVALID_INST
 } InstructionType;
 
@@ -373,12 +376,15 @@ typedef struct {
 #define INT_DISK_WRITE      0x61 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_INFO       0x62 // Get disk info -> R0=TotalSectors, R1=SectorSize
 
+#define INT_PRINT_FREG0     0x70
+
 #define DISK_IMAGE_FILENAME "disk.img"
 #define DISK_IMAGE_SIZE_BYTES (16 * 1024 * 1024) // 16 MB
 #define DISK_SECTOR_SIZE 512
 
 typedef struct {
     int registers[NUM_REGISTERS];
+    double f_registers[NUM_F_REGISTERS];
     int memory[MEMORY_SIZE];
     int ip;
     int flags;
@@ -482,11 +488,30 @@ void loopo_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void loopno_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void eli_op(VirtualCPU* cpu);
 void dli_op(VirtualCPU* cpu);
+void fmov_reg(VirtualCPU* cpu, int dest_freg, int src_freg);
+void fmov_imm(VirtualCPU* cpu, int dest_freg, double value);
+void fadd(VirtualCPU* cpu, int dest_freg, int src_freg);
+void fsub(VirtualCPU* cpu, int dest_freg, int src_freg);
+void fmul(VirtualCPU* cpu, int dest_freg, int src_freg);
+void fdiv(VirtualCPU* cpu, int dest_freg, int src_freg);
+void fcmp(VirtualCPU* cpu, int freg1, int freg2);
+void fabs_op(VirtualCPU* cpu, int freg);
+void fneg_op(VirtualCPU* cpu, int freg);
+void fsqrt(VirtualCPU* cpu, int freg);
+void cvtif(VirtualCPU* cpu, int dest_freg, int src_reg);
+void cvtfi(VirtualCPU* cpu, int dest_reg, int src_freg);
+void fload(VirtualCPU* cpu, int dest_freg, int addr_src_reg);
+void fstore(VirtualCPU* cpu, int addr_dest_reg, int src_freg);
+void finc(VirtualCPU* cpu, int freg);
+void fdec(VirtualCPU* cpu, int freg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
 bool isValidReg(int reg) {
     return reg >= 0 && reg < NUM_REGISTERS;
+}
+bool isValidFReg(int reg) {
+    return reg >= 0 && reg < NUM_F_REGISTERS;
 }
 bool isValidMem(int addr) {
     return addr >= 0 && addr < MEMORY_SIZE;
@@ -588,6 +613,7 @@ bool init_cpu(VirtualCPU* cpu) {
     if (!cpu) return false;
 
     memset(cpu->registers, 0, sizeof(cpu->registers));
+    memset(cpu->f_registers, 0, sizeof(cpu->f_registers));
     memset(cpu->memory, 0, sizeof(cpu->memory));
     cpu->ip = 0;
     cpu->flags = 0;
@@ -874,6 +900,21 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "LOOPNO") == 0) return LOOPNO;
     if (strcasecmp(instruction, "ELI") == 0) return ELI;
     if (strcasecmp(instruction, "DLI") == 0) return DLI;
+    if (strcasecmp(instruction, "FMOV") == 0) return FMOV;
+    if (strcasecmp(instruction, "FADD") == 0) return FADD;
+    if (strcasecmp(instruction, "FSUB") == 0) return FSUB;
+    if (strcasecmp(instruction, "FMUL") == 0) return FMUL;
+    if (strcasecmp(instruction, "FDIV") == 0) return FDIV;
+    if (strcasecmp(instruction, "FCMP") == 0) return FCMP;
+    if (strcasecmp(instruction, "FABS") == 0) return FABS;
+    if (strcasecmp(instruction, "FNEG") == 0) return FNEG;
+    if (strcasecmp(instruction, "FSQRT") == 0) return FSQRT;
+    if (strcasecmp(instruction, "CVTIF") == 0) return CVTIF;
+    if (strcasecmp(instruction, "CVTFI") == 0) return CVTFI;
+    if (strcasecmp(instruction, "FLOAD") == 0) return FLOAD;
+    if (strcasecmp(instruction, "FSTORE") == 0) return FSTORE;
+    if (strcasecmp(instruction, "FINC") == 0) return FINC;
+    if (strcasecmp(instruction, "FDEC") == 0) return FDEC;
     return INVALID_INST;
 }
 
@@ -2273,6 +2314,13 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         }
     }
     break;
+    case INT_PRINT_FREG0: // 0x70
+        if (!isValidFReg(0)) {
+            fprintf(stderr, "Error (INT 0x70): F0 is not a valid F register (This should not happen).\n");
+            break;
+        }
+        printf("%f\n", cpu->f_registers[0]);
+        break;
 
     default:
         fprintf(stderr, "Error: Unknown interrupt code 0x%X at line %d\n", interrupt_id, cpu->ip + 1);
@@ -2287,7 +2335,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
         char* current_instruction_line = program[cpu->ip];
         char op_str[10];
         int operands[3] = { 0, 0, 0 };
-        char str_operand[MAX_LINE_LENGTH] = { 0 };
 
         if (debug_mode) {
             printf("[DEBUG IP:%d] %s\n", cpu->ip + 1, current_instruction_line);
@@ -2870,7 +2917,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 rvd_op(cpu, operands[0]);
             }
             else {
-                fprintf(stderr, "Error: Invalid RVD format at line %d (Expected: RVD Rx)\n", cpu->ip + 1); // Changed from REVDEC
+                fprintf(stderr, "Error: Invalid RVD format at line %d (Expected: RVD Rx)\n", cpu->ip + 1);
             }
             break;
         case INC_MEM:
@@ -2957,6 +3004,152 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
 
         case DLI:
             dli_op(cpu);
+            break;
+        case FMOV: {
+            int dest_freg = -1;
+            int src_freg = -1;
+            char operand2_str[MAX_LINE_LENGTH];
+            double immediate_val = 0.0;
+            char* endptr = NULL;
+
+            if (sscanf(current_instruction_line, "%*s F%d, F%d", &dest_freg, &src_freg) == 2) {
+                fmov_reg(cpu, dest_freg, src_freg);
+            }
+            else if (sscanf(current_instruction_line, "%*s F%d, %s", &dest_freg, operand2_str) == 2) {
+                immediate_val = strtod(operand2_str, &endptr);
+                if (operand2_str == endptr || *endptr != '\0') {
+                    fprintf(stderr, "Error: Invalid FMOV immediate float value '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                }
+                else {
+                    fmov_imm(cpu, dest_freg, immediate_val);
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FMOV format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+            }
+            break;
+        }
+        case FADD:
+            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
+                fadd(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FADD format at line %d (Expected: FADD Fd, Fs)\n", cpu->ip + 1);
+            }
+            break;
+        case FSUB:
+            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
+                fsub(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FSUB format at line %d (Expected: FSUB Fd, Fs)\n", cpu->ip + 1);
+            }
+            break;
+        case FMUL:
+            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
+                fmul(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FMUL format at line %d (Expected: FMUL Fd, Fs)\n", cpu->ip + 1);
+            }
+            break;
+        case FDIV:
+            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
+                fdiv(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FDIV format at line %d (Expected: FDIV Fd, Fs)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FCMP:
+            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
+                fcmp(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FCMP format at line %d (Expected: FCMP Freg1, Freg2)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FABS:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                fabs_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FABS format at line %d (Expected: FABS Freg)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FNEG:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                fneg_op(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FNEG format at line %d (Expected: FNEG Freg)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FSQRT:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                fsqrt(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FSQRT format at line %d (Expected: FSQRT Freg)\n", cpu->ip + 1);
+            }
+            break;
+
+        case CVTIF:
+            if (sscanf(current_instruction_line, "%*s F%d, R%d", &operands[0], &operands[1]) == 2) {
+                cvtif(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CVTIF format at line %d (Expected: CVTIF Fd, Rs)\n", cpu->ip + 1);
+            }
+            break;
+
+        case CVTFI:
+            if (sscanf(current_instruction_line, "%*s R%d, F%d", &operands[0], &operands[1]) == 2) {
+                cvtfi(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid CVTFI format at line %d (Expected: CVTFI Rd, Fs)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FLOAD:
+            if (sscanf(current_instruction_line, "%*s F%d, R%d", &operands[0], &operands[1]) == 2) {
+                fload(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FLOAD format at line %d (Expected: FLOAD Fd, Raddr)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FSTORE:
+            if (sscanf(current_instruction_line, "%*s R%d, F%d", &operands[0], &operands[1]) == 2) {
+                fstore(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FSTORE format at line %d (Expected: FSTORE Raddr, Fs)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FINC:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                finc(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FINC format at line %d (Expected: FINC Freg)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FDEC:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                fdec(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FDEC format at line %d (Expected: FDEC Freg)\n", cpu->ip + 1);
+            }
             break;
 
         case INVALID_INST:
@@ -3920,6 +4113,288 @@ void eli_op(VirtualCPU* cpu) {
 
 void dli_op(VirtualCPU* cpu) {
     cpu->interrupts_enabled = false;
+}
+
+void fmov_reg(VirtualCPU* cpu, int dest_freg, int src_freg) {
+    if (!isValidFReg(dest_freg) || !isValidFReg(src_freg)) {
+        fprintf(stderr, "Error FMOV: Invalid F register F%d or F%d\n", dest_freg, src_freg);
+        return;
+    }
+    cpu->f_registers[dest_freg] = cpu->f_registers[src_freg];
+}
+
+void fmov_imm(VirtualCPU* cpu, int dest_freg, double value) {
+    if (!isValidFReg(dest_freg)) {
+        fprintf(stderr, "Error FMOV: Invalid destination F register F%d\n", dest_freg);
+        return;
+    }
+    cpu->f_registers[dest_freg] = value;
+}
+
+void fadd(VirtualCPU* cpu, int dest_freg, int src_freg) {
+    if (!isValidFReg(dest_freg) || !isValidFReg(src_freg)) {
+        fprintf(stderr, "Error FADD: Invalid F register F%d or F%d\n", dest_freg, src_freg);
+        return;
+    }
+    double result = cpu->f_registers[dest_freg] + cpu->f_registers[src_freg];
+    if (isinf(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->f_registers[dest_freg] = result;
+}
+
+void fsub(VirtualCPU* cpu, int dest_freg, int src_freg) {
+    if (!isValidFReg(dest_freg) || !isValidFReg(src_freg)) {
+        fprintf(stderr, "Error FSUB: Invalid F register F%d or F%d\n", dest_freg, src_freg);
+        return;
+    }
+    double result = cpu->f_registers[dest_freg] - cpu->f_registers[src_freg];
+    if (isinf(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->f_registers[dest_freg] = result;
+}
+
+void fmul(VirtualCPU* cpu, int dest_freg, int src_freg) {
+    if (!isValidFReg(dest_freg) || !isValidFReg(src_freg)) {
+        fprintf(stderr, "Error FMUL: Invalid F register F%d or F%d\n", dest_freg, src_freg);
+        return;
+    }
+    double result = cpu->f_registers[dest_freg] * cpu->f_registers[src_freg];
+    if (isinf(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->f_registers[dest_freg] = result;
+}
+
+void fdiv(VirtualCPU* cpu, int dest_freg, int src_freg) {
+    if (!isValidFReg(dest_freg) || !isValidFReg(src_freg)) {
+        fprintf(stderr, "Error FDIV: Invalid F register F%d or F%d\n", dest_freg, src_freg);
+        return;
+    }
+    double divisor = cpu->f_registers[src_freg];
+    if (divisor == 0.0) {
+        fprintf(stderr, "Error: Floating point division by zero (FDIV F%d, F%d) at line %d.\n", dest_freg, src_freg, cpu->ip + 1);
+        cpu->f_registers[dest_freg] = INFINITY;
+        cpu->flags |= FLAG_OVERFLOW;
+        return;
+    }
+    double result = cpu->f_registers[dest_freg] / divisor;
+    if (isinf(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->f_registers[dest_freg] = result;
+}
+
+#define FPU_EPSILON 1e-9
+
+void fcmp(VirtualCPU* cpu, int freg1, int freg2) {
+    if (!isValidFReg(freg1) || !isValidFReg(freg2)) {
+        fprintf(stderr, "Error FCMP: Invalid F register F%d or F%d\n", freg1, freg2);
+        return;
+    }
+    double val1 = cpu->f_registers[freg1];
+    double val2 = cpu->f_registers[freg2];
+
+    cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS | FLAG_OVERFLOW);
+
+    if (fabs(val1 - val2) < FPU_EPSILON) {
+        cpu->flags |= FLAG_ZERO;
+    }
+    else if (val1 > val2) {
+        cpu->flags |= FLAG_GREATER;
+    }
+    else {
+        cpu->flags |= FLAG_LESS;
+    }
+}
+
+void fabs_op(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FABS: Invalid F register F%d\n", freg);
+        return;
+    }
+    cpu->f_registers[freg] = fabs(cpu->f_registers[freg]);
+}
+
+void fneg_op(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FNEG: Invalid F register F%d\n", freg);
+        return;
+    }
+    cpu->f_registers[freg] = -cpu->f_registers[freg];
+}
+
+void fsqrt(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FSQRT: Invalid F register F%d\n", freg);
+        return;
+    }
+    double value = cpu->f_registers[freg];
+    double result;
+
+    cpu->flags &= ~FLAG_OVERFLOW;
+
+    if (value < 0.0) {
+        fprintf(stderr, "Warning: FSQRT domain error (sqrt of negative number %f) at line %d.\n", value, cpu->ip + 1);
+        result = nan("");
+    }
+    else {
+        result = sqrt(value);
+    }
+
+    if (isinf(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+
+    cpu->f_registers[freg] = result;
+}
+
+void cvtif(VirtualCPU* cpu, int dest_freg, int src_reg) {
+    if (!isValidFReg(dest_freg)) {
+        fprintf(stderr, "Error CVTIF: Invalid destination F register F%d\n", dest_freg);
+        return;
+    }
+    if (!isValidReg(src_reg)) {
+        fprintf(stderr, "Error CVTIF: Invalid source register R%d\n", src_reg);
+        return;
+    }
+    cpu->f_registers[dest_freg] = (double)cpu->registers[src_reg];
+    cpu->flags &= ~FLAG_OVERFLOW;
+}
+
+void cvtfi(VirtualCPU* cpu, int dest_reg, int src_freg) {
+    if (!isValidReg(dest_reg)) {
+        fprintf(stderr, "Error CVTFI: Invalid destination register R%d\n", dest_reg);
+        return;
+    }
+    if (!isValidFReg(src_freg)) {
+        fprintf(stderr, "Error CVTFI: Invalid source F register F%d\n", src_freg);
+        return;
+    }
+
+    double float_value = cpu->f_registers[src_freg];
+    double rounded_value = round(float_value);
+
+    if (rounded_value > (double)INT_MAX || rounded_value < (double)INT_MIN || isnan(rounded_value)) {
+        cpu->flags |= FLAG_OVERFLOW;
+        if (isnan(rounded_value)) {
+            cpu->registers[dest_reg] = 0;
+        }
+        else if (rounded_value > 0) {
+            cpu->registers[dest_reg] = INT_MAX;
+        }
+        else {
+            cpu->registers[dest_reg] = INT_MIN;
+        }
+        fprintf(stderr, "Warning: Overflow or NaN during CVTFI conversion of %f at line %d\n", float_value, cpu->ip + 1);
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+        cpu->registers[dest_reg] = (int)rounded_value;
+    }
+}
+
+void fload(VirtualCPU* cpu, int dest_freg, int addr_src_reg) {
+    if (!isValidFReg(dest_freg)) {
+        fprintf(stderr, "Error FLOAD: Invalid destination F register F%d\n", dest_freg);
+        return;
+    }
+    if (!isValidReg(addr_src_reg)) {
+        fprintf(stderr, "Error FLOAD: Invalid source address register R%d\n", addr_src_reg);
+        return;
+    }
+
+    int address = cpu->registers[addr_src_reg];
+
+    size_t bytes_needed = sizeof(double);
+    if (bytes_needed == 0 || bytes_needed > MEMORY_SIZE) {
+        fprintf(stderr, "Error FLOAD: Invalid sizeof(double) calculation.\n");
+        return;
+    }
+    if (!isValidMem(address) || !isValidMem(address + bytes_needed - 1)) {
+        fprintf(stderr, "Error FLOAD: Invalid memory range [0x%X - 0x%X] from R%d at line %d\n",
+            address, address + (int)bytes_needed - 1, addr_src_reg, cpu->ip + 1);
+        return;
+    }
+
+    double loaded_value;
+
+    memcpy(&loaded_value, &cpu->memory[address], sizeof(double));
+
+    cpu->f_registers[dest_freg] = loaded_value;
+    cpu->flags &= ~FLAG_OVERFLOW;
+}
+
+void fstore(VirtualCPU* cpu, int addr_dest_reg, int src_freg) {
+    if (!isValidReg(addr_dest_reg)) {
+        fprintf(stderr, "Error FSTORE: Invalid destination address register R%d\n", addr_dest_reg);
+        return;
+    }
+    if (!isValidFReg(src_freg)) {
+        fprintf(stderr, "Error FSTORE: Invalid source F register F%d\n", src_freg);
+        return;
+    }
+
+    int address = cpu->registers[addr_dest_reg];
+    double value_to_store = cpu->f_registers[src_freg];
+
+    size_t bytes_needed = sizeof(double);
+    if (bytes_needed == 0 || bytes_needed > MEMORY_SIZE) {
+        fprintf(stderr, "Error FSTORE: Invalid sizeof(double) calculation.\n");
+        return;
+    }
+    if (!isValidMem(address) || !isValidMem(address + bytes_needed - 1)) {
+        fprintf(stderr, "Error FSTORE: Invalid memory range [0x%X - 0x%X] from R%d at line %d\n",
+            address, address + (int)bytes_needed - 1, addr_dest_reg, cpu->ip + 1);
+        return;
+    }
+
+    memcpy(&cpu->memory[address], &value_to_store, sizeof(double));
+
+    cpu->flags &= ~FLAG_OVERFLOW;
+}
+
+void finc(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FINC: Invalid F register F%d\n", freg);
+        return;
+    }
+    double result = cpu->f_registers[freg] + 1.0;
+    if (isinf(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->f_registers[freg] = result;
+}
+
+void fdec(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FDEC: Invalid F register F%d\n", freg);
+        return;
+    }
+    double result = cpu->f_registers[freg] - 1.0;
+    if (isinf(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+    cpu->f_registers[freg] = result;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

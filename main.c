@@ -301,7 +301,7 @@ typedef enum {
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
     INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO, ELI, DLI,
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
-    FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP,
+    FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG,
     INVALID_INST
 } InstructionType;
 
@@ -505,6 +505,8 @@ void finc(VirtualCPU* cpu, int freg);
 void fdec(VirtualCPU* cpu, int freg);
 void fpush(VirtualCPU* cpu, int freg);
 void fpop(VirtualCPU* cpu, int freg);
+void fclr(VirtualCPU* cpu, int freg);
+void fxchg(VirtualCPU* cpu, int freg1, int freg2);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -918,6 +920,8 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "FDEC") == 0) return FDEC;
     if (strcasecmp(instruction, "FPUSH") == 0) return FPUSH;
     if (strcasecmp(instruction, "FPOP") == 0) return FPOP;
+    if (strcasecmp(instruction, "FCLR") == 0) return FCLR;
+    if (strcasecmp(instruction, "FXCHG") == 0) return FXCHG;
     return INVALID_INST;
 }
 
@@ -3172,6 +3176,23 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 fprintf(stderr, "Error: Invalid FPOP format at line %d (Expected: FPOP Freg)\n", cpu->ip + 1);
             }
             break;
+        case FCLR:
+            if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
+                fclr(cpu, operands[0]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FCLR format at line %d (Expected: FCLR Freg)\n", cpu->ip + 1);
+            }
+            break;
+
+        case FXCHG:
+            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
+                fxchg(cpu, operands[0], operands[1]);
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FXCHG format at line %d (Expected: FXCHG Freg1, Freg2)\n", cpu->ip + 1);
+            }
+            break;
 
         case INVALID_INST:
         default:
@@ -4472,6 +4493,24 @@ void fpop(VirtualCPU* cpu, int freg) {
 
     memcpy(&cpu->f_registers[freg], &cpu->memory[sp], sizeof(double));
     cpu->sp = sp + SLOTS_PER_DOUBLE;
+}
+
+void fclr(VirtualCPU* cpu, int freg) {
+    if (!isValidFReg(freg)) {
+        fprintf(stderr, "Error FCLR: Invalid F register F%d\n", freg);
+        return;
+    }
+    cpu->f_registers[freg] = 0.0;
+}
+
+void fxchg(VirtualCPU* cpu, int freg1, int freg2) {
+    if (!isValidFReg(freg1) || !isValidFReg(freg2)) {
+        fprintf(stderr, "Error FXCHG: Invalid F register F%d or F%d\n", freg1, freg2);
+        return;
+    }
+    double temp = cpu->f_registers[freg1];
+    cpu->f_registers[freg1] = cpu->f_registers[freg2];
+    cpu->f_registers[freg2] = temp;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

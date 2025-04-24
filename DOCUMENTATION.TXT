@@ -1,5 +1,5 @@
-Virtual CPU Documentation (Version 3)
-This document describes the instruction set, flags, and interrupts for the Virtual CPU implementation (Version 3).
+Virtual CPU Documentation (Version 4)
+This document describes the instruction set, flags, and interrupts for the Virtual CPU implementation (Version 4).
 Overview
 Architecture: 32-bit registers, 1MB addressable memory.
 Registers: 32 general-purpose registers (R0 - R31).

@@ -376,6 +376,7 @@ typedef struct {
 #define INT_DISK_READ       0x60 // Read sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_WRITE      0x61 // Write sectors (R0=Sector#, R1=MemAddr, R2=NumSectors) -> R0=Status
 #define INT_DISK_INFO       0x62 // Get disk info -> R0=TotalSectors, R1=SectorSize
+#define INT_DISK_FORMAT     0x63 // Format (zero-fill) the entire disk -> R0=Status
 
 #define DISK_IMAGE_FILENAME "disk.img"
 #define DISK_IMAGE_SIZE_BYTES (16 * 1024 * 1024) // 16 MB
@@ -2325,6 +2326,63 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
                 cpu->registers[total_sectors_reg] = (int)total_sectors;
             }
             cpu->registers[sector_size_reg] = cpu->disk_sector_size;
+        }
+    }
+    break;
+
+    case INT_DISK_FORMAT: // 0x63
+    {
+        int status_reg = 0;
+        int status = 0;
+
+        if (!cpu->disk_image_fp) {
+            status = 3;
+            goto disk_format_end;
+        }
+
+        long long total_sectors = cpu->disk_image_size / cpu->disk_sector_size;
+        if (total_sectors <= 0 || cpu->disk_sector_size <= 0) {
+            status = 0;
+            goto disk_format_end;
+        }
+
+        char* zero_buffer = (char*)calloc(cpu->disk_sector_size, 1);
+        if (!zero_buffer) {
+            status = 3;
+            goto disk_format_end;
+        }
+
+        if (fseek(cpu->disk_image_fp, 0, SEEK_SET) != 0) {
+            free(zero_buffer);
+            status = 3;
+            goto disk_format_end;
+        }
+
+        bool write_error = false;
+        for (long long i = 0; i < total_sectors; ++i) {
+            size_t bytes_written = fwrite(zero_buffer, 1, cpu->disk_sector_size, cpu->disk_image_fp);
+            if (bytes_written != (size_t)cpu->disk_sector_size) {
+                write_error = true;
+                break;
+            }
+        }
+
+        free(zero_buffer);
+
+        if (fflush(cpu->disk_image_fp) != 0) {
+            status = 3;
+        }
+        else {
+            status = write_error ? 3 : 0;
+        }
+
+    disk_format_end:
+        if (!isValidReg(status_reg)) {
+            fprintf(stderr, "FATAL (INT 0x63): Status register R%d is invalid!\n", status_reg);
+            cpu->shutdown_requested = true;
+        }
+        else {
+            cpu->registers[status_reg] = status;
         }
     }
     break;

@@ -1,0 +1,11 @@
+ELI
+ADD R0, 5
+INT 0x01
+CMP R0, 5
+JMPE done
+HLT
+
+done:
+	SUB R0, 1
+	INT 0x01
+	HLT

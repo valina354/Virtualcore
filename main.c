@@ -311,6 +311,7 @@ typedef struct {
     char value[64];
 } DefineEntry;
 
+#define FPU_EPSILON 1e-9
 #define FLAG_ZERO   0x01
 #define FLAG_GREATER 0x02
 #define FLAG_LESS   0x04
@@ -2443,78 +2444,256 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
                 if (!isValidReg(dest_reg)) {
                     fprintf(stderr, "Error MOV: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
-                    break;
+                    running = false; break;
                 }
 
                 int src_reg = -1;
                 int immediate_val = 0;
                 bool parsed_operand2 = false;
 
-                if (operand2_str[0] == 'R' && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
                     if (!isValidReg(src_reg)) {
                         fprintf(stderr, "Error MOV: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false;
                     }
                     else {
                         cpu->registers[dest_reg] = cpu->registers[src_reg];
                         parsed_operand2 = true;
                     }
                 }
-                else if ((operand2_str[0] == '0' && (operand2_str[1] == 'x' || operand2_str[1] == 'X')) &&
-                    sscanf(operand2_str, "%x", &immediate_val) == 1) {
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
                     mov(cpu, dest_reg, immediate_val);
                     parsed_operand2 = true;
                 }
-                else if (isdigit((unsigned char)operand2_str[0]) || (operand2_str[0] == '-' && isdigit((unsigned char)operand2_str[1]))) {
-                    if (sscanf(operand2_str, "%d", &immediate_val) == 1) {
-                        mov(cpu, dest_reg, immediate_val);
-                        parsed_operand2 = true;
-                    }
-                }
 
-                if (!parsed_operand2) {
+                if (!parsed_operand2 && running) {
                     fprintf(stderr, "Error: Invalid MOV second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false;
                 }
             }
             else {
                 fprintf(stderr, "Error: Invalid MOV format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
             break;
         }
-        case ADD:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                add(cpu, operands[0], operands[1]);
+        case ADD: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error ADD: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error ADD: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    add(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    int val1 = cpu->registers[dest_reg];
+                    int val2 = immediate_val;
+                    int result = val1 + val2;
+                    if (((val1 > 0 && val2 > 0) && (result < 0)) || ((val1 < 0 && val2 < 0) && (result > 0))) {
+                        cpu->flags |= FLAG_OVERFLOW;
+                    }
+                    else {
+                        cpu->flags &= ~FLAG_OVERFLOW;
+                    }
+                    cpu->registers[dest_reg] = result;
+                }
+                else {
+                    fprintf(stderr, "Error ADD: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
             }
-            else { fprintf(stderr, "Error: Invalid ADD format at line %d\n", cpu->ip + 1); }
-            break;
-        case SUB:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                sub(cpu, operands[0], operands[1]);
+            else {
+                fprintf(stderr, "Error: Invalid ADD format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
-            else { fprintf(stderr, "Error: Invalid SUB format at line %d\n", cpu->ip + 1); }
             break;
-        case MUL:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                mul(cpu, operands[0], operands[1]);
+        }
+        case SUB: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error SUB: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error SUB: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    sub(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    int val1 = cpu->registers[dest_reg];
+                    int val2 = immediate_val;
+                    int result = val1 - val2;
+                    if (((val1 > 0 && val2 < 0) && (result < 0)) || ((val1 < 0 && val2 > 0) && (result > 0))) {
+                        cpu->flags |= FLAG_OVERFLOW;
+                    }
+                    else {
+                        cpu->flags &= ~FLAG_OVERFLOW;
+                    }
+                    cpu->registers[dest_reg] = result;
+                }
+                else {
+                    fprintf(stderr, "Error SUB: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
             }
-            else { fprintf(stderr, "Error: Invalid MUL format at line %d\n", cpu->ip + 1); }
-            break;
-        case DIV:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                divi(cpu, operands[0], operands[1]);
+            else {
+                fprintf(stderr, "Error: Invalid SUB format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
-            else { fprintf(stderr, "Error: Invalid DIV format at line %d\n", cpu->ip + 1); }
             break;
-        case MOD:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                mod_op(cpu, operands[0], operands[1]);
+        }
+        case MUL: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error MUL: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error MUL: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    mul(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    long long val1 = (long long)cpu->registers[dest_reg];
+                    long long val2 = (long long)immediate_val;
+                    long long result = val1 * val2;
+                    if (result > INT_MAX || result < INT_MIN) {
+                        cpu->flags |= FLAG_OVERFLOW;
+                    }
+                    else {
+                        cpu->flags &= ~FLAG_OVERFLOW;
+                    }
+                    cpu->registers[dest_reg] = (int)result;
+                }
+                else {
+                    fprintf(stderr, "Error MUL: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
             }
-            else { fprintf(stderr, "Error: Invalid MOD format at line %d\n", cpu->ip + 1); }
+            else {
+                fprintf(stderr, "Error: Invalid MUL format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
             break;
+        }
+        case DIV: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error DIV: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error DIV: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    divi(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    int val1 = cpu->registers[dest_reg];
+                    int val2 = immediate_val;
+                    if (val2 == 0) {
+                        fprintf(stderr, "Error: Division by zero (DIV R%d, %d) at line %d.\n", dest_reg, val2, cpu->ip + 1);
+                        cpu->flags &= ~FLAG_OVERFLOW;
+                        running = false; break;
+                    }
+                    if (val1 == INT_MIN && val2 == -1) {
+                        cpu->flags |= FLAG_OVERFLOW;
+                        cpu->registers[dest_reg] = val1 / val2;
+                    }
+                    else {
+                        cpu->flags &= ~FLAG_OVERFLOW;
+                        cpu->registers[dest_reg] = val1 / val2;
+                    }
+                }
+                else {
+                    fprintf(stderr, "Error DIV: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid DIV format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
+            break;
+        }
+        case MOD: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error MOD: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error MOD: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    mod_op(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    if (immediate_val != 0) {
+                        cpu->registers[dest_reg] %= immediate_val;
+                    }
+                    else {
+                        fprintf(stderr, "Error: Modulo by zero (MOD R%d, %d) at line %d.\n", dest_reg, immediate_val, cpu->ip + 1);
+                        running = false; break;
+                    }
+                }
+                else {
+                    fprintf(stderr, "Error MOD: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid MOD format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
+            break;
+        }
         case ABS:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 abs_op(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid ABS format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid ABS format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case LOOP:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
@@ -2522,6 +2701,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid LOOP format at line %d (Expected: LOOP Rx, <line_number>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case INTR:
@@ -2529,12 +2709,12 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 if (cpu->interrupts_enabled) {
                     interrupt(cpu, operands[0]);
                 }
-                else
-                {
-                    exit(0);
+                else {
+                    fprintf(stderr, "Interrupt %x called while interrupts disabled at line %d, halting.\n", operands[0], cpu->ip + 1);
+                    running = false;
                 }
             }
-            else { fprintf(stderr, "Error: Invalid INT format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid INT format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case NOP:
             nop(cpu);
@@ -2546,329 +2726,449 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 not_op(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid NOT format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid NOT format at line %d\n", cpu->ip + 1); running = false; }
             break;
-        case AND:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                and_op(cpu, operands[0], operands[1]);
+        case AND: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error AND: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error AND: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    and_op(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    cpu->registers[dest_reg] &= immediate_val;
+                }
+                else {
+                    fprintf(stderr, "Error AND: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
             }
-            else { fprintf(stderr, "Error: Invalid AND format at line %d\n", cpu->ip + 1); }
-            break;
-        case OR:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                or_op(cpu, operands[0], operands[1]);
+            else {
+                fprintf(stderr, "Error: Invalid AND format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
-            else { fprintf(stderr, "Error: Invalid OR format at line %d\n", cpu->ip + 1); }
             break;
-        case XOR:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                xor_op(cpu, operands[0], operands[1]);
+        }
+        case OR: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error OR: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error OR: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    or_op(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    cpu->registers[dest_reg] |= immediate_val;
+                }
+                else {
+                    fprintf(stderr, "Error OR: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
             }
-            else { fprintf(stderr, "Error: Invalid XOR format at line %d\n", cpu->ip + 1); }
+            else {
+                fprintf(stderr, "Error: Invalid OR format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
             break;
+        }
+        case XOR: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error XOR: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error XOR: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    xor_op(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    cpu->registers[dest_reg] ^= immediate_val;
+                }
+                else {
+                    fprintf(stderr, "Error XOR: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid XOR format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
+            break;
+        }
         case SHL:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
                 shl(cpu, operands[0], operands[1]);
             }
-            else { fprintf(stderr, "Error: Invalid SHL format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid SHL format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case SHR:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
                 shr(cpu, operands[0], operands[1]);
             }
-            else { fprintf(stderr, "Error: Invalid SHR format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid SHR format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case ROL:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
                 rol(cpu, operands[0], operands[1]);
             }
-            else { fprintf(stderr, "Error: Invalid ROL format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid ROL format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case ROR:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
                 ror(cpu, operands[0], operands[1]);
             }
-            else { fprintf(stderr, "Error: Invalid ROR format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid ROR format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case JMP:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 jmp(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid JMP format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid JMP format at line %d\n", cpu->ip + 1); running = false; }
             break;
-        case CMP:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                cmp(cpu, operands[0], operands[1]);
-            }
-            else { fprintf(stderr, "Error: Invalid CMP format at line %d\n", cpu->ip + 1); }
-            break;
-        case JNE:
-            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_ZERO) == 0) {
-                    jmp(cpu, operands[0]);
+        case CMP: {
+            int reg1 = -1;
+            int reg2 = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &reg1, operand2_str) == 2) {
+                if (!isValidReg(reg1)) {
+                    fprintf(stderr, "Error CMP: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &reg2) == 1) {
+                    if (!isValidReg(reg2)) {
+                        fprintf(stderr, "Error CMP: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    cmp(cpu, reg1, reg2);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    int val1 = cpu->registers[reg1];
+                    int val2 = immediate_val;
+                    int result = val1 - val2;
+                    if (((val1 > 0 && val2 < 0) && (result < 0)) || ((val1 < 0 && val2 > 0) && (result > 0))) {
+                        cpu->flags = (cpu->flags & ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS)) | FLAG_OVERFLOW;
+                    }
+                    else {
+                        cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS | FLAG_OVERFLOW);
+                    }
+                    if (val1 == val2) { cpu->flags |= FLAG_ZERO; }
+                    else if (val1 > val2) { cpu->flags |= FLAG_GREATER; }
+                    else { cpu->flags |= FLAG_LESS; }
+                }
+                else {
+                    fprintf(stderr, "Error CMP: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
                 }
             }
-            else { fprintf(stderr, "Error: Invalid JNE format at line %d\n", cpu->ip + 1); }
+            else {
+                fprintf(stderr, "Error: Invalid CMP format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
+            break;
+        }
+        case JNE:
+            if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
+                if ((cpu->flags & FLAG_ZERO) == 0) { jmp(cpu, operands[0]); }
+            }
+            else { fprintf(stderr, "Error: Invalid JNE format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case JEQ:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_ZERO) != 0) {
-                    jmp(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_ZERO) != 0) { jmp(cpu, operands[0]); }
             }
-            else { fprintf(stderr, "Error: Invalid JEQ format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid JEQ format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case JMPH:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_GREATER) != 0) {
-                    jmp(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_GREATER) != 0) { jmp(cpu, operands[0]); }
             }
-            else { fprintf(stderr, "Error: Invalid JMPH format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid JMPH format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case JMPL:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_LESS) != 0) {
-                    jmp(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_LESS) != 0) { jmp(cpu, operands[0]); }
             }
-            else { fprintf(stderr, "Error: Invalid JMPL format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid JMPL format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case NEG:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 neg(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid NEG format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid NEG format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case INC:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 inc(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid INC format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid INC format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case DEC:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 dec(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid DEC format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid DEC format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case XCHG:
             if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
                 xchg(cpu, operands[0], operands[1]);
             }
-            else { fprintf(stderr, "Error: Invalid XCHG format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid XCHG format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case CLR:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 clr(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid CLR format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid CLR format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case PUSH:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 push(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid PUSH format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid PUSH format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case POP:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 pop(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid POP format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid POP format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case CALL:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 call(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid CALL format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid CALL format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case RET:
             ret(cpu);
             break;
         case CALLH:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_GREATER) != 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_GREATER) != 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLH format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLH format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case CALLL:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_LESS) != 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_LESS) != 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLL format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLL format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case CALLE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_ZERO) != 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_ZERO) != 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLE format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLE format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case CALLNE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_ZERO) == 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_ZERO) == 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLNE format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLNE format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case CALLO:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_OVERFLOW) != 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_OVERFLOW) != 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLO format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLO format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case CALLNO:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_OVERFLOW) == 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_OVERFLOW) == 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLNO format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLNO format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case CALLHE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_LESS) == 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_LESS) == 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLHE format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLHE format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case CALLLE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_GREATER) == 0) {
-                    call(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_GREATER) == 0) { call(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid CALLLE format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CALLLE format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case RND:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 rnd(cpu, operands[0]);
             }
-            else { fprintf(stderr, "Error: Invalid RND format at line %d\n", cpu->ip + 1); }
+            else { fprintf(stderr, "Error: Invalid RND format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case STRMOV: {
-                char* args_start = strchr(current_instruction_line, ' ');
-                if (!args_start) {
-                    fprintf(stderr, "Error: Invalid STRMOV format (no arguments) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
-                    running = false;
-                    break;
+            char* args_start = strchr(current_instruction_line, ' ');
+            if (!args_start) {
+                fprintf(stderr, "Error: Invalid STRMOV format (no arguments) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false; break;
+            }
+            args_start++;
+            char* end_ptr_addr;
+            long parsed_addr = strtol(args_start, &end_ptr_addr, 10);
+            if (end_ptr_addr == args_start) {
+                fprintf(stderr, "Error: Invalid STRMOV format (cannot parse address) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false; break;
+            }
+            int addr = (int)parsed_addr;
+            char* comma_ptr = strchr(end_ptr_addr, ',');
+            if (!comma_ptr) {
+                fprintf(stderr, "Error: Invalid STRMOV format (missing comma) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false; break;
+            }
+            char* quote_start = strchr(comma_ptr + 1, '"');
+            if (!quote_start) {
+                fprintf(stderr, "Error: Invalid STRMOV format (missing opening quote) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false; break;
+            }
+            quote_start++;
+            char* quote_end = strchr(quote_start, '"');
+            if (!quote_end) {
+                fprintf(stderr, "Error: Invalid STRMOV format (missing closing quote) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false; break;
+            }
+            size_t str_len = quote_end - quote_start;
+            if (addr >= 0 && addr < MEMORY_SIZE) {
+                if (addr + str_len >= MEMORY_SIZE) {
+                    fprintf(stderr, "Error: STRMOV destination out of bounds (addr=%d, len=%zu) at line %d\n", addr, str_len, cpu->ip + 1);
+                    running = false; break;
                 }
-                args_start++;
-
-                char* end_ptr_addr;
-                long parsed_addr = strtol(args_start, &end_ptr_addr, 10);
-                if (end_ptr_addr == args_start) {
-                    fprintf(stderr, "Error: Invalid STRMOV format (cannot parse address) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
-                    running = false;
-                    break;
-                }
-                int addr = (int)parsed_addr;
-
-                char* comma_ptr = strchr(end_ptr_addr, ',');
-                if (!comma_ptr) {
-                    fprintf(stderr, "Error: Invalid STRMOV format (missing comma) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
-                    running = false;
-                    break;
-                }
-
-                char* quote_start = strchr(comma_ptr + 1, '"');
-                if (!quote_start) {
-                    fprintf(stderr, "Error: Invalid STRMOV format (missing opening quote) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
-                    running = false;
-                    break;
-                }
-                quote_start++;
-
-                char* quote_end = strchr(quote_start, '"');
-                if (!quote_end) {
-                    fprintf(stderr, "Error: Invalid STRMOV format (missing closing quote) at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
-                    running = false;
-                    break;
-                }
-
-                size_t str_len = quote_end - quote_start;
-
-                if (addr >= 0 && addr < MEMORY_SIZE) {
-                    if (addr + str_len >= MEMORY_SIZE) {
-                         fprintf(stderr, "Error: STRMOV destination out of bounds (addr=%d, len=%zu) at line %d\n", addr, str_len, cpu->ip + 1);
-                         running = false;
-                         break;
+                for (size_t i = 0; i < str_len; i++) {
+                    if (quote_start + i >= current_instruction_line + strlen(current_instruction_line)) {
+                        fprintf(stderr, "Error: Internal parsing error reading STRMOV string at line %d\n", cpu->ip + 1);
+                        running = false; break;
                     }
-
-                    for (size_t i = 0; i < str_len; i++) {
-                        if (quote_start + i >= current_instruction_line + strlen(current_instruction_line)){
-                            fprintf(stderr, "Error: Internal parsing error reading STRMOV string at line %d\n", cpu->ip+1);
-                            running = false;
-                            break;
-                        }
-                        cpu->memory[addr + i] = *(quote_start + i);
-                    }
-                    if (!running) break;
-
-                    cpu->memory[addr + str_len] = 0;
-
-                } else {
-                    fprintf(stderr, "Error: Invalid STRMOV memory address %d at line %d\n", addr, cpu->ip + 1);
-                    running = false;
+                    cpu->memory[addr + i] = *(quote_start + i);
                 }
-            } break;
+                if (!running) break;
+                cpu->memory[addr + str_len] = 0;
+            }
+            else {
+                fprintf(stderr, "Error: Invalid STRMOV memory address %d at line %d\n", addr, cpu->ip + 1);
+                running = false;
+            }
+        } break;
         case LOAD:
             if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
                 load_op(cpu, operands[0], operands[1]);
             }
             else {
                 fprintf(stderr, "Error: Invalid LOAD format at line %d (Expected: LOAD Rdest, Raddr_src)\n", cpu->ip + 1);
+                running = false;
             }
             break;
+        case STORE: {
+            int val_src_reg = -1;
+            int addr_dest_reg = -1;
+            int immediate_val = 0;
+            char operand1_str[MAX_LINE_LENGTH];
+            char operand2_str[MAX_LINE_LENGTH];
 
-        case STORE:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                store_op(cpu, operands[0], operands[1]);
+            if (sscanf(current_instruction_line, "%*s %[^,], %s", operand1_str, operand2_str) == 2) {
+                if (!((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &addr_dest_reg) == 1 && isValidReg(addr_dest_reg))) {
+                    fprintf(stderr, "Error STORE: Invalid destination address register '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand1_str[0] == 'R' || operand1_str[0] == 'r') && sscanf(operand1_str, "R%d", &val_src_reg) == 1) {
+                    if (!isValidReg(val_src_reg)) {
+                        fprintf(stderr, "Error STORE: Invalid source value register '%s' at line %d\n", operand1_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    store_op(cpu, val_src_reg, addr_dest_reg);
+                }
+                else if (sscanf(operand1_str, "%i", &immediate_val) == 1) {
+                    int address = cpu->registers[addr_dest_reg];
+                    if (!isValidMem(address)) {
+                        fprintf(stderr, "Error STORE: Invalid memory address %d (0x%X) in R%d at line %d\n", address, address, addr_dest_reg, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    cpu->memory[address] = immediate_val;
+                }
+                else {
+                    fprintf(stderr, "Error STORE: Invalid source operand '%s' at line %d\n", operand1_str, cpu->ip + 1);
+                    running = false; break;
+                }
+
             }
             else {
-                fprintf(stderr, "Error: Invalid STORE format at line %d (Expected: STORE Rval_src, Raddr_dest)\n", cpu->ip + 1);
+                fprintf(stderr, "Error: Invalid STORE format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
             break;
-        case TEST:
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
-                test_op(cpu, operands[0], operands[1]);
+        }
+        case TEST: {
+            int reg1 = -1;
+            int reg2 = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &reg1, operand2_str) == 2) {
+                if (!isValidReg(reg1)) {
+                    fprintf(stderr, "Error TEST: Invalid register R%d at line %d\n", reg1, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &reg2) == 1) {
+                    if (!isValidReg(reg2)) {
+                        fprintf(stderr, "Error TEST: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    test_op(cpu, reg1, reg2);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    int val1 = cpu->registers[reg1];
+                    int val2 = immediate_val;
+                    int result = val1 & val2;
+                    cpu->flags &= ~(FLAG_ZERO | FLAG_OVERFLOW);
+                    if (result == 0) {
+                        cpu->flags |= FLAG_ZERO;
+                    }
+                }
+                else {
+                    fprintf(stderr, "Error TEST: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
             }
             else {
-                fprintf(stderr, "Error: Invalid TEST format at line %d (Expected: TEST R1, R2)\n", cpu->ip + 1);
+                fprintf(stderr, "Error: Invalid TEST format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
             break;
+        }
         case LEA: {
             int dest_reg = -1, base_reg = -1, offset = 0;
             char base_reg_str[10];
@@ -2878,18 +3178,18 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 }
                 else {
                     fprintf(stderr, "Error: Invalid LEA base register format '%s' at line %d\n", base_reg_str, cpu->ip + 1);
+                    running = false;
                 }
             }
             else {
                 fprintf(stderr, "Error: Invalid LEA format at line %d (Expected: LEA Rdest, Rbase, offset)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         }
-
         case PUSHF:
             pushf_op(cpu);
             break;
-
         case POPF:
             popf_op(cpu);
             break;
@@ -2899,15 +3199,16 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid LOOPE/LOOPZ format at line %d (Expected: OP Rx, <line_number>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case LOOPNE:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
                 loopne_op(cpu, operands[0], operands[1]);
             }
             else {
                 fprintf(stderr, "Error: Invalid LOOPNE/LOOPNZ format at line %d (Expected: OP Rx, <line_number>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case SETF:
@@ -2916,67 +3217,60 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid SETF format at line %d (Expected: SETF <hex_mask>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case CLRF:
             if (sscanf(current_instruction_line, "%*s %x", &operands[0]) == 1) {
                 clrf_op(cpu, operands[0]);
             }
             else {
                 fprintf(stderr, "Error: Invalid CLRF format at line %d (Expected: CLRF <hex_mask> or CLRF 0)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case BT:
         case BSET:
         case BCLR:
-        case BTOG:
-        {
+        case BTOG: {
             int dest_reg = -1;
             char operand2_str[MAX_LINE_LENGTH];
             if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
                 if (!isValidReg(dest_reg)) {
                     fprintf(stderr, "Error %s: Invalid destination register R%d at line %d\n", op_str, dest_reg, cpu->ip + 1);
-                    break;
+                    running = false; break;
                 }
-
                 int bit_source_reg = -1;
                 int immediate_bit_index = -1;
-                bool immediate_mode = true;
-
-                if (operand2_str[0] == 'R' && sscanf(operand2_str, "R%d", &bit_source_reg) == 1) {
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &bit_source_reg) == 1) {
                     if (!isValidReg(bit_source_reg)) {
                         fprintf(stderr, "Error %s: Invalid bit source register %s at line %d\n", op_str, operand2_str, cpu->ip + 1);
-                        break;
+                        running = false; break;
                     }
-                    immediate_mode = false;
                     immediate_bit_index = cpu->registers[bit_source_reg];
                 }
                 else if (sscanf(operand2_str, "%d", &immediate_bit_index) == 1) {
-                    immediate_mode = true;
+                    /* Immediate mode, index is already set */
                 }
                 else {
                     fprintf(stderr, "Error %s: Invalid second operand '%s' at line %d\n", op_str, operand2_str, cpu->ip + 1);
-                    break;
+                    running = false; break;
                 }
-
                 if (immediate_bit_index < 0 || immediate_bit_index >= 32) {
                     fprintf(stderr, "Error %s: Invalid bit index %d (must be 0-31) at line %d\n", op_str, immediate_bit_index, cpu->ip + 1);
-                    break;
+                    running = false; break;
                 }
-
                 switch (inst) {
                 case BT:   bt_op(cpu, dest_reg, immediate_bit_index); break;
                 case BSET: bset_op(cpu, dest_reg, immediate_bit_index); break;
                 case BCLR: bclr_op(cpu, dest_reg, immediate_bit_index); break;
                 case BTOG: btog_op(cpu, dest_reg, immediate_bit_index); break;
-                default:
-                    fprintf(stderr, "Error: Reached bit op handler with invalid instruction %d\n", inst);
-                    break;
+                default: fprintf(stderr, "Error: Reached bit op handler with invalid instruction %d\n", inst); running = false; break;
                 }
             }
             else {
                 fprintf(stderr, "Error: Invalid %s format structure at line %d: '%s'\n", op_str, cpu->ip + 1, current_instruction_line);
+                running = false;
             }
             break;
         }
@@ -2986,24 +3280,25 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid STRCMP format at line %d (Expected: STRCMP Raddr1, Raddr2)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case STRLEN:
             if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
                 strlen_op(cpu, operands[0], operands[1]);
             }
             else {
                 fprintf(stderr, "Error: Invalid STRLEN format at line %d (Expected: STRLEN Rdest, Raddr)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case STRCPY:
             if (sscanf(current_instruction_line, "%*s R%d, R%d", &operands[0], &operands[1]) == 2) {
                 strcpy_op(cpu, operands[0], operands[1]);
             }
             else {
                 fprintf(stderr, "Error: Invalid STRCPY format at line %d (Expected: STRCPY Rdest_addr, Rsrc_addr)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case MEMCPY:
@@ -3012,24 +3307,25 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid MEMCPY format at line %d (Expected: MEMCPY Rdest_addr, Rsrc_addr, Rlen)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case MEMSET:
             if (sscanf(current_instruction_line, "%*s R%d, R%d, R%d", &operands[0], &operands[1], &operands[2]) == 3) {
                 memset_op(cpu, operands[0], operands[1], operands[2]);
             }
             else {
                 fprintf(stderr, "Error: Invalid MEMSET format at line %d (Expected: MEMSET Rdest_addr, Rval, Rlen)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case CPUID:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 cpuid_op(cpu, operands[0]);
             }
             else {
                 fprintf(stderr, "Error: Invalid CPUID format at line %d (Expected: CPUID Rdest)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case BSWAP:
@@ -3038,38 +3334,49 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid BSWAP format at line %d (Expected: BSWAP Rx)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case SAR: {
             int dest_reg = -1;
             int source_reg = -1;
+            int count = 0; // Renamed from immediate_val
+            char operand2_str[MAX_LINE_LENGTH];
 
-            if (sscanf(current_instruction_line, "%*s R%d, R%d", &dest_reg, &source_reg) == 2) {
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
                 if (!isValidReg(dest_reg)) {
                     fprintf(stderr, "Error SAR: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
-                    break;
-                }
-                if (!isValidReg(source_reg)) {
-                    fprintf(stderr, "Error SAR: Invalid count register R%d at line %d\n", source_reg, cpu->ip + 1);
-                    break;
+                    running = false; break;
                 }
 
-                int count = cpu->registers[source_reg];
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &source_reg) == 1) {
+                    if (!isValidReg(source_reg)) {
+                        fprintf(stderr, "Error SAR: Invalid count register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    count = cpu->registers[source_reg];
+                }
+                else if (sscanf(operand2_str, "%d", &count) == 1) {
+                    // Count is already immediate_val
+                }
+                else {
+                    fprintf(stderr, "Error SAR: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
 
                 if (count < 0) {
-                    fprintf(stderr, "Warning SAR: Negative shift count %d in R%d at line %d. Treating as 0.\n", count, source_reg, cpu->ip + 1);
+                    fprintf(stderr, "Warning SAR: Negative shift count %d at line %d. Treating as 0.\n", count, cpu->ip + 1);
                     count = 0;
                 }
-                if (count >= 32) {
-                    count = 31;
-                    fprintf(stderr, "Warning SAR: Shift count %d (from R%d) >= 32 at line %d. Clamping to 31.\n", cpu->registers[source_reg], source_reg, cpu->ip + 1);
-                }
+                // SAR allows count >= 32, behavior is defined by >> operator
+                // No clamping needed here, unlike logical shifts
 
                 sar_op(cpu, dest_reg, count);
 
             }
             else {
-                fprintf(stderr, "Error: Invalid SAR format structure at line %d: '%s'. Expected: SAR Rdest, Rcount\n", cpu->ip + 1, current_instruction_line);
+                fprintf(stderr, "Error: Invalid SAR format structure at line %d: '%s'. Expected: SAR Rdest, Rcount or SAR Rdest, count\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
             break;
         }
@@ -3079,6 +3386,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid RVD format at line %d (Expected: RVD Rx)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case INC_MEM:
@@ -3087,59 +3395,47 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid INC_MEM format at line %d (Expected: INC_MEM Rx)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case DEC_MEM:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 dec_mem_op(cpu, operands[0]);
             }
             else {
                 fprintf(stderr, "Error: Invalid DEC_MEM format at line %d (Expected: DEC_MEM Rx)\n", cpu->ip + 1);
+                running = false;
             }
-            break;  
-
+            break;
         case JO:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_OVERFLOW) != 0) {
-                    jmp(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_OVERFLOW) != 0) { jmp(cpu, operands[0]); }
             }
             else {
                 fprintf(stderr, "Error: Invalid JO format at line %d (Expected: JO <line_number/label>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case JNO:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_OVERFLOW) == 0) {
-                    jmp(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_OVERFLOW) == 0) { jmp(cpu, operands[0]); }
             }
             else {
                 fprintf(stderr, "Error: Invalid JNO format at line %d (Expected: JNO <line_number/label>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
         case JGE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_LESS) == 0) {
-                    jmp(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_LESS) == 0) { jmp(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid JGE format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid JGE format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case JLE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
-                if ((cpu->flags & FLAG_GREATER) == 0) {
-                    jmp(cpu, operands[0]);
-                }
+                if ((cpu->flags & FLAG_GREATER) == 0) { jmp(cpu, operands[0]); }
             }
-            else {
-                fprintf(stderr, "Error: Invalid JLE format at line %d\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid JLE format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case LOOPO:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
@@ -3147,22 +3443,21 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid LOOPO format at line %d (Expected: LOOPO Rx, <line_number/label>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case LOOPNO:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
                 loopno_op(cpu, operands[0], operands[1]);
             }
             else {
                 fprintf(stderr, "Error: Invalid LOOPNO format at line %d (Expected: LOOPNO Rx, <line_number/label>)\n", cpu->ip + 1);
+                running = false;
             }
             break;
-
         case ELI:
             eli_op(cpu);
             break;
-
         case DLI:
             dli_op(cpu);
             break;
@@ -3180,6 +3475,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 immediate_val = strtod(operand2_str, &endptr);
                 if (operand2_str == endptr || *endptr != '\0') {
                     fprintf(stderr, "Error: Invalid FMOV immediate float value '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false;
                 }
                 else {
                     fmov_imm(cpu, dest_freg, immediate_val);
@@ -3187,165 +3483,248 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid FMOV format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
             break;
         }
-        case FADD:
-            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
-                fadd(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid FADD format at line %d (Expected: FADD Fd, Fs)\n", cpu->ip + 1);
-            }
-            break;
-        case FSUB:
-            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
-                fsub(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid FSUB format at line %d (Expected: FSUB Fd, Fs)\n", cpu->ip + 1);
-            }
-            break;
-        case FMUL:
-            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
-                fmul(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid FMUL format at line %d (Expected: FMUL Fd, Fs)\n", cpu->ip + 1);
-            }
-            break;
-        case FDIV:
-            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
-                fdiv(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid FDIV format at line %d (Expected: FDIV Fd, Fs)\n", cpu->ip + 1);
-            }
-            break;
+        case FADD: {
+            int dest_freg = -1;
+            int src_freg = -1;
+            double immediate_val = 0.0;
+            char operand2_str[MAX_LINE_LENGTH];
+            char* endptr = NULL;
 
-        case FCMP:
-            if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
-                fcmp(cpu, operands[0], operands[1]);
+            if (sscanf(current_instruction_line, "%*s F%d, %s", &dest_freg, operand2_str) == 2) {
+                if (!isValidFReg(dest_freg)) {
+                    fprintf(stderr, "Error FADD: Invalid destination F register F%d\n", dest_freg);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'F' || operand2_str[0] == 'f') && sscanf(operand2_str, "F%d", &src_freg) == 1) {
+                    if (!isValidFReg(src_freg)) {
+                        fprintf(stderr, "Error FADD: Invalid source F register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    fadd(cpu, dest_freg, src_freg);
+                }
+                else {
+                    immediate_val = strtod(operand2_str, &endptr);
+                    if (operand2_str != endptr && *endptr == '\0') {
+                        double result = cpu->f_registers[dest_freg] + immediate_val;
+                        if (isinf(result)) { cpu->flags |= FLAG_OVERFLOW; }
+                        else { cpu->flags &= ~FLAG_OVERFLOW; }
+                        cpu->f_registers[dest_freg] = result;
+                    }
+                    else {
+                        fprintf(stderr, "Error FADD: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                }
             }
             else {
-                fprintf(stderr, "Error: Invalid FCMP format at line %d (Expected: FCMP Freg1, Freg2)\n", cpu->ip + 1);
+                fprintf(stderr, "Error: Invalid FADD format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
             }
             break;
+        }
+        case FSUB: {
+            int dest_freg = -1;
+            int src_freg = -1;
+            double immediate_val = 0.0;
+            char operand2_str[MAX_LINE_LENGTH];
+            char* endptr = NULL;
 
+            if (sscanf(current_instruction_line, "%*s F%d, %s", &dest_freg, operand2_str) == 2) {
+                if (!isValidFReg(dest_freg)) { fprintf(stderr, "Error FSUB: Invalid dest F%d\n", dest_freg); running = false; break; }
+
+                if ((operand2_str[0] == 'F' || operand2_str[0] == 'f') && sscanf(operand2_str, "F%d", &src_freg) == 1) {
+                    if (!isValidFReg(src_freg)) { fprintf(stderr, "Error FSUB: Invalid src F%s\n", operand2_str); running = false; break; }
+                    fsub(cpu, dest_freg, src_freg);
+                }
+                else {
+                    immediate_val = strtod(operand2_str, &endptr);
+                    if (operand2_str != endptr && *endptr == '\0') {
+                        double result = cpu->f_registers[dest_freg] - immediate_val;
+                        if (isinf(result)) { cpu->flags |= FLAG_OVERFLOW; }
+                        else { cpu->flags &= ~FLAG_OVERFLOW; }
+                        cpu->f_registers[dest_freg] = result;
+                    }
+                    else { fprintf(stderr, "Error FSUB: Invalid second op '%s'\n", operand2_str); running = false; break; }
+                }
+            }
+            else { fprintf(stderr, "Error: Invalid FSUB format\n"); running = false; }
+            break;
+        }
+        case FMUL: {
+            int dest_freg = -1;
+            int src_freg = -1;
+            double immediate_val = 0.0;
+            char operand2_str[MAX_LINE_LENGTH];
+            char* endptr = NULL;
+
+            if (sscanf(current_instruction_line, "%*s F%d, %s", &dest_freg, operand2_str) == 2) {
+                if (!isValidFReg(dest_freg)) { fprintf(stderr, "Error FMUL: Invalid dest F%d\n", dest_freg); running = false; break; }
+
+                if ((operand2_str[0] == 'F' || operand2_str[0] == 'f') && sscanf(operand2_str, "F%d", &src_freg) == 1) {
+                    if (!isValidFReg(src_freg)) { fprintf(stderr, "Error FMUL: Invalid src F%s\n", operand2_str); running = false; break; }
+                    fmul(cpu, dest_freg, src_freg);
+                }
+                else {
+                    immediate_val = strtod(operand2_str, &endptr);
+                    if (operand2_str != endptr && *endptr == '\0') {
+                        double result = cpu->f_registers[dest_freg] * immediate_val;
+                        if (isinf(result)) { cpu->flags |= FLAG_OVERFLOW; }
+                        else { cpu->flags &= ~FLAG_OVERFLOW; }
+                        cpu->f_registers[dest_freg] = result;
+                    }
+                    else { fprintf(stderr, "Error FMUL: Invalid second op '%s'\n", operand2_str); running = false; break; }
+                }
+            }
+            else { fprintf(stderr, "Error: Invalid FMUL format\n"); running = false; }
+            break;
+        }
+        case FDIV: {
+            int dest_freg = -1;
+            int src_freg = -1;
+            double immediate_val = 0.0;
+            char operand2_str[MAX_LINE_LENGTH];
+            char* endptr = NULL;
+
+            if (sscanf(current_instruction_line, "%*s F%d, %s", &dest_freg, operand2_str) == 2) {
+                if (!isValidFReg(dest_freg)) { fprintf(stderr, "Error FDIV: Invalid dest F%d\n", dest_freg); running = false; break; }
+
+                if ((operand2_str[0] == 'F' || operand2_str[0] == 'f') && sscanf(operand2_str, "F%d", &src_freg) == 1) {
+                    if (!isValidFReg(src_freg)) { fprintf(stderr, "Error FDIV: Invalid src F%s\n", operand2_str); running = false; break; }
+                    fdiv(cpu, dest_freg, src_freg);
+                }
+                else {
+                    immediate_val = strtod(operand2_str, &endptr);
+                    if (operand2_str != endptr && *endptr == '\0') {
+                        double divisor = immediate_val;
+                        if (divisor == 0.0) {
+                            fprintf(stderr, "Error: Float division by zero (FDIV F%d, %f)\n", dest_freg, divisor);
+                            cpu->f_registers[dest_freg] = INFINITY;
+                            cpu->flags |= FLAG_OVERFLOW;
+                            running = false; break;
+                        }
+                        double result = cpu->f_registers[dest_freg] / divisor;
+                        if (isinf(result)) { cpu->flags |= FLAG_OVERFLOW; }
+                        else { cpu->flags &= ~FLAG_OVERFLOW; }
+                        cpu->f_registers[dest_freg] = result;
+                    }
+                    else { fprintf(stderr, "Error FDIV: Invalid second op '%s'\n", operand2_str); running = false; break; }
+                }
+            }
+            else { fprintf(stderr, "Error: Invalid FDIV format\n"); running = false; }
+            break;
+        }
+        case FCMP: {
+            int freg1 = -1;
+            int freg2 = -1;
+            double immediate_val = 0.0;
+            char operand2_str[MAX_LINE_LENGTH];
+            char* endptr = NULL;
+
+            if (sscanf(current_instruction_line, "%*s F%d, %s", &freg1, operand2_str) == 2) {
+                if (!isValidFReg(freg1)) { fprintf(stderr, "Error FCMP: Invalid F%d\n", freg1); running = false; break; }
+
+                if ((operand2_str[0] == 'F' || operand2_str[0] == 'f') && sscanf(operand2_str, "F%d", &freg2) == 1) {
+                    if (!isValidFReg(freg2)) { fprintf(stderr, "Error FCMP: Invalid F%s\n", operand2_str); running = false; break; }
+                    fcmp(cpu, freg1, freg2);
+                }
+                else {
+                    immediate_val = strtod(operand2_str, &endptr);
+                    if (operand2_str != endptr && *endptr == '\0') {
+                        double val1 = cpu->f_registers[freg1];
+                        double val2 = immediate_val;
+                        cpu->flags &= ~(FLAG_ZERO | FLAG_GREATER | FLAG_LESS | FLAG_OVERFLOW);
+                        if (fabs(val1 - val2) < FPU_EPSILON) { cpu->flags |= FLAG_ZERO; }
+                        else if (val1 > val2) { cpu->flags |= FLAG_GREATER; }
+                        else { cpu->flags |= FLAG_LESS; }
+                    }
+                    else { fprintf(stderr, "Error FCMP: Invalid second op '%s'\n", operand2_str); running = false; break; }
+                }
+            }
+            else { fprintf(stderr, "Error: Invalid FCMP format\n"); running = false; }
+            break;
+        }
         case FABS:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 fabs_op(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FABS format at line %d (Expected: FABS Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FABS format\n"); running = false; }
             break;
-
         case FNEG:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 fneg_op(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FNEG format at line %d (Expected: FNEG Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FNEG format\n"); running = false; }
             break;
-
         case FSQRT:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 fsqrt(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FSQRT format at line %d (Expected: FSQRT Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FSQRT format\n"); running = false; }
             break;
-
         case CVTIF:
             if (sscanf(current_instruction_line, "%*s F%d, R%d", &operands[0], &operands[1]) == 2) {
                 cvtif(cpu, operands[0], operands[1]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid CVTIF format at line %d (Expected: CVTIF Fd, Rs)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CVTIF format\n"); running = false; }
             break;
-
         case CVTFI:
             if (sscanf(current_instruction_line, "%*s R%d, F%d", &operands[0], &operands[1]) == 2) {
                 cvtfi(cpu, operands[0], operands[1]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid CVTFI format at line %d (Expected: CVTFI Rd, Fs)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid CVTFI format\n"); running = false; }
             break;
-
         case FLOAD:
             if (sscanf(current_instruction_line, "%*s F%d, R%d", &operands[0], &operands[1]) == 2) {
                 fload(cpu, operands[0], operands[1]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FLOAD format at line %d (Expected: FLOAD Fd, Raddr)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FLOAD format\n"); running = false; }
             break;
-
         case FSTORE:
             if (sscanf(current_instruction_line, "%*s R%d, F%d", &operands[0], &operands[1]) == 2) {
                 fstore(cpu, operands[0], operands[1]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FSTORE format at line %d (Expected: FSTORE Raddr, Fs)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FSTORE format\n"); running = false; }
             break;
-
         case FINC:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 finc(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FINC format at line %d (Expected: FINC Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FINC format\n"); running = false; }
             break;
-
         case FDEC:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 fdec(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FDEC format at line %d (Expected: FDEC Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FDEC format\n"); running = false; }
             break;
-
         case FPUSH:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 fpush(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FPUSH format at line %d (Expected: FPUSH Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FPUSH format at line %d\n", cpu->ip + 1); running = false; }
             break;
-
         case FPOP:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 fpop(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FPOP format at line %d (Expected: FPOP Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FPOP format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case FCLR:
             if (sscanf(current_instruction_line, "%*s F%d", &operands[0]) == 1) {
                 fclr(cpu, operands[0]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FCLR format at line %d (Expected: FCLR Freg)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FCLR format\n"); running = false; }
             break;
-
         case FXCHG:
             if (sscanf(current_instruction_line, "%*s F%d, F%d", &operands[0], &operands[1]) == 2) {
                 fxchg(cpu, operands[0], operands[1]);
             }
-            else {
-                fprintf(stderr, "Error: Invalid FXCHG format at line %d (Expected: FXCHG Freg1, Freg2)\n", cpu->ip + 1);
-            }
+            else { fprintf(stderr, "Error: Invalid FXCHG format\n"); running = false; }
             break;
 
         case INVALID_INST:
@@ -3360,11 +3739,14 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
         }
     }
 
-    if (cpu->ip >= program_size) {
+    if (cpu->ip >= program_size && running && !cpu->shutdown_requested) {
         printf("Program finished by running past the last instruction.\n");
     }
-    else if (!running) {
-        printf("Execution halted (SDL Quit or Error).\n");
+    else if (!running && !cpu->shutdown_requested) {
+        printf("Execution halted due to error or HLT instruction.\n");
+    }
+    else if (cpu->shutdown_requested) {
+        printf("Execution halted due to shutdown request (e.g., INT 0x41 or SDL Quit).\n");
     }
     else {
         printf("Execution stopped unexpectedly.\n");

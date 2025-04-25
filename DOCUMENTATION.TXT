@@ -1,11 +1,10 @@
 Virtual CPU Documentation (Version 4 - FPU Enhanced)
 This document describes the instruction set, flags, and interrupts for the Virtual CPU implementation (Version 4), including the Floating Point Unit (FPU).
-
 Overview
 Architecture: 32-bit registers, 1MB addressable memory.
 Registers:
-    - General Purpose: 32 registers (R0 - R31), 32-bit integer.
-    - Floating Point: 8 registers (F0 - F7), 64-bit double-precision floating-point.
+General Purpose: 32 registers (R0 - R31), 32-bit integer.
+Floating Point: 8 registers (F0 - F7), 64-bit double-precision floating-point.
 IP (Instruction Pointer): Implicitly managed, holds the address of the next instruction to execute (relative to the start of the loaded program, 0-based index). Not directly accessible.
 SP (Stack Pointer): Implicitly managed, points to the top of the stack in memory. The stack grows downwards from the end of memory (MEMORY_SIZE). Shared by integer and FPU push/pop operations. Not directly accessible.
 Memory: MEMORY_SIZE (1MB) of 32-bit integer memory locations. Memory addresses range from 0 to MEMORY_SIZE - 1. Floating-point values occupy multiple slots when stored/loaded.
@@ -14,604 +13,583 @@ Audio: Simple square wave audio output via SDL. Frequency and volume controllabl
 Input: Keyboard and Mouse input via SDL. Console input via standard input.
 Disk: Basic simulated disk I/O using a file (disk.img). Operations are sector-based (512 bytes).
 Assembly Features: Supports labels for jumps/calls, #define for constants, comments (;), and basic preprocessor directives (#warning, #error).
-
 Status Flags
 The CPU has a single 32-bit flags register. Specific bits indicate the result of the last operation that affects flags (primarily CMP, FCMP, and TEST, but also arithmetic for FLAG_OVERFLOW).
-
 FLAG_ZERO (ZF) - Bit 0 (0x01):
-    Set: If the result of the last CMP or FCMP operation indicated equality (within epsilon for FCMP). If the result of TEST was zero. Also set by STRCMP if strings are equal, and by STRLEN if length is zero. BT sets ZF if the tested bit is 0.
-    Cleared: Otherwise.
+Set: If the result of the last CMP or FCMP operation indicated equality (within epsilon for FCMP). If the result of TEST was zero. Also set by STRCMP if strings are equal, and by STRLEN if length is zero. BT sets ZF if the tested bit is 0.
+Cleared: Otherwise.
 FLAG_GREATER (GF) - Bit 1 (0x02):
-    Set: If the result of the last CMP (signed integer) or FCMP operation indicated the first operand was greater than the second. Also set by STRCMP if the first string is lexicographically greater.
-    Cleared: Otherwise. Not typically set by TEST.
+Set: If the result of the last CMP (signed integer) or FCMP operation indicated the first operand was greater than the second. Also set by STRCMP if the first string is lexicographically greater.
+Cleared: Otherwise. Not typically set by TEST.
 FLAG_LESS (LF) - Bit 2 (0x04):
-    Set: If the result of the last CMP (signed integer) or FCMP operation indicated the first operand was less than the second. Also set by STRCMP if the first string is lexicographically less.
-    Cleared: Otherwise. Not typically set by TEST.
+Set: If the result of the last CMP (signed integer) or FCMP operation indicated the first operand was less than the second. Also set by STRCMP if the first string is lexicographically less.
+Cleared: Otherwise. Not typically set by TEST.
 FLAG_OVERFLOW (OF) - Bit 3 (0x08):
-    Set: If the result of the last signed integer arithmetic (ADD, SUB, MUL, DIV, INC, DEC, NEG, ABS, INCMEM, DECMEM) or floating-point arithmetic (FADD, FSUB, FMUL, FDIV, FINC, FDEC) resulted in a value outside the representable range (integer overflow/underflow, or floating-point infinity). Also set by LEA if address calculation overflows 32 bits, by RVD on decimal reversal overflow, and by CVTFI on float-to-int conversion overflow or NaN. FSQRT sets OF if the result is infinity. Division by zero (integer or float) typically sets OF.
-    Cleared: Otherwise. CMP, FCMP, and TEST also clear OF unless the comparison itself (internal subtraction) overflows. LOAD, FLOAD, STORE, FSTORE, PUSH, POP, FPUSH, FPOP, MOV, FMOV, etc., generally clear or leave OF unaffected.
-
+Set: If the result of the last signed integer arithmetic (ADD, SUB, MUL, DIV, INC, DEC, NEG, ABS, INCMEM, DECMEM) or floating-point arithmetic (FADD, FSUB, FMUL, FDIV, FINC, FDEC) resulted in a value outside the representable range (integer overflow/underflow, or floating-point infinity). Also set by LEA if address calculation overflows 32 bits, by RVD on decimal reversal overflow, and by CVTFI on float-to-int conversion overflow or NaN. FSQRT sets OF if the result is infinity. Division by zero (integer or float) typically sets OF.
+Cleared: Otherwise. CMP, FCMP, and TEST also clear OF unless the comparison itself (internal subtraction) overflows. LOAD, FLOAD, STORE, FSTORE, PUSH, POP, FPUSH, FPOP, MOV, FMOV, etc., generally clear or leave OF unaffected.
 Instructions
-(Note: <...> denotes a required operand type. Rx means any integer register R0-R31. Fx means any FPU register F0-F7. imm means an immediate integer value (decimal or 0x hex). f_imm means an immediate floating-point value. addr means a memory address, often held within an R register. line/label means a 1-based line number or a defined label.)
-
+(Note: <...> denotes a required operand type. Rx means any integer register R0-R31. Ry is often used for a second register operand. Fx/Fy are FPU registers F0-F7. imm means an immediate integer value (decimal or 0x hex). f_imm means an immediate floating-point value. Raddr means an integer register holding a memory address. addr typically refers to an immediate address value (used rarely, e.g., STRMOV). line/label means a 1-based line number or a defined label.)
 --- Integer Data Transfer Instructions ---
 MOV Rx, Ry
-    Syntax: MOV <Rdest>, <Rsrc>
-    Description: Copies the value from register Rsrc to register Rdest.
-    Flags Affected: None.
+Syntax: MOV <Rdest>, <Rsrc>
+Description: Copies the value from register Rsrc to register Rdest.
+Flags Affected: None.
 MOV Rx, imm
-    Syntax: MOV <Rdest>, <immediate_value>
-    Description: Loads the immediate_value into register Rdest.
-    Flags Affected: None.
+Syntax: MOV <Rdest>, <immediate_value>
+Description: Loads the immediate_value into register Rdest.
+Flags Affected: None.
 STRMOV addr, "string"
-    Syntax: STRMOV <immediate_address>, "<string_literal>"
-    Description: Copies the string_literal (including a null terminator) into memory starting at the specified immediate_address. The address is not in a register for this instruction. Use with caution! Ensure the address and string length are within memory bounds.
-    Flags Affected: None.
+Syntax: STRMOV <immediate_address>, "<string_literal>"
+Description: Copies the string_literal (including a null terminator) into memory starting at the specified immediate_address. The address is not in a register for this instruction. Use with caution! Ensure the address and string length are within memory bounds.
+Flags Affected: None.
 LOAD Rdest, Raddr
-    Syntax: LOAD <Rdest>, <Raddr_src>
-    Description: Loads the 32-bit value from the memory address specified in Raddr_src into Rdest.
-    Flags Affected: None.
-STORE Rval, Raddr
-    Syntax: STORE <Rval_src>, <Raddr_dest>
-    Description: Stores the 32-bit value from Rval_src into the memory address specified in Raddr_dest.
-    Flags Affected: None.
+Syntax: LOAD <Rdest>, <Raddr_src>
+Description: Loads the 32-bit value from the memory address specified in Raddr_src into Rdest.
+Flags Affected: None.
+STORE Rval, Raddr / STORE imm, Raddr
+Syntax: STORE <Rval_src>, <Raddr_dest> OR STORE <immediate_value>, <Raddr_dest>
+Description: Stores the 32-bit value from Rval_src or the immediate value immediate_value into the memory address specified in Raddr_dest.
+Flags Affected: None.
 XCHG Rx, Ry
-    Syntax: XCHG <R1>, <R2>
-    Description: Swaps the values of register R1 and register R2.
-    Flags Affected: None.
+Syntax: XCHG <R1>, <R2>
+Description: Swaps the values of register R1 and register R2.
+Flags Affected: None.
 LEA Rdest, Rbase, offset
-    Syntax: LEA <Rdest>, <Rbase>, <immediate_offset>
-    Description: Calculates the effective address by adding immediate_offset to the value in Rbase, and stores this calculated address (not the memory content) into Rdest. (Load Effective Address).
-    Flags Affected: OF (set if 32-bit address calculation overflows, cleared otherwise).
+Syntax: LEA <Rdest>, <Rbase>, <immediate_offset>
+Description: Calculates the effective address by adding immediate_offset to the value in Rbase, and stores this calculated address (not the memory content) into Rdest. (Load Effective Address).
+Flags Affected: OF (set if 32-bit address calculation overflows, cleared otherwise).
 BSWAP Rx
-    Syntax: BSWAP <Rreg>
-    Description: Reverses the byte order of the 32-bit value in the specified register (e.g., 0x11223344 becomes 0x44332211).
-    Flags Affected: None.
+Syntax: BSWAP <Rreg>
+Description: Reverses the byte order of the 32-bit value in the specified register (e.g., 0x11223344 becomes 0x44332211).
+Flags Affected: None.
 CPUID Rdest
-    Syntax: CPUID <Rdest>
-    Description: Stores the CPU version number (CPU_VERSION define) into Rdest.
-    Flags Affected: None.
-
+Syntax: CPUID <Rdest>
+Description: Stores the CPU version number (CPU_VERSION define) into Rdest.
+Flags Affected: None.
 --- Integer Arithmetic Instructions ---
-ADD Rx, Ry
-    Syntax: ADD <Rdest>, <Rsrc>
-    Description: Adds the value in Rsrc to Rdest, storing the result in Rdest. (Rdest = Rdest + Rsrc).
-    Flags Affected: OF.
-SUB Rx, Ry
-    Syntax: SUB <Rdest>, <Rsrc>
-    Description: Subtracts the value in Rsrc from Rdest, storing the result in Rdest. (Rdest = Rdest - Rsrc).
-    Flags Affected: OF.
-MUL Rx, Ry
-    Syntax: MUL <Rdest>, <Rsrc>
-    Description: Multiplies the value in Rdest by the value in Rsrc, storing the 32-bit result in Rdest.
-    Flags Affected: OF (if result exceeds 32-bit signed range).
-DIV Rx, Ry
-    Syntax: DIV <Rdest>, <Rsrc>
-    Description: Divides the value in Rdest by the value in Rsrc, storing the integer quotient in Rdest. Division by zero is an error.
-    Flags Affected: OF (specifically if INT_MIN / -1, or on division by zero).
-MOD Rx, Ry
-    Syntax: MOD <Rdest>, <Rsrc>
-    Description: Calculates the remainder of Rdest divided by Rsrc, storing the result in Rdest. Modulo by zero is an error.
-    Flags Affected: None directly (division by zero is handled separately).
+ADD Rx, Ry / ADD Rx, imm
+Syntax: ADD <Rdest>, <Rsrc> OR ADD <Rdest>, <immediate_value>
+Description: Adds the value in Rsrc or the immediate_value to Rdest, storing the result in Rdest. (Rdest = Rdest + Rsrc/imm).
+Flags Affected: OF.
+SUB Rx, Ry / SUB Rx, imm
+Syntax: SUB <Rdest>, <Rsrc> OR SUB <Rdest>, <immediate_value>
+Description: Subtracts the value in Rsrc or the immediate_value from Rdest, storing the result in Rdest. (Rdest = Rdest - Rsrc/imm).
+Flags Affected: OF.
+MUL Rx, Ry / MUL Rx, imm
+Syntax: MUL <Rdest>, <Rsrc> OR MUL <Rdest>, <immediate_value>
+Description: Multiplies the value in Rdest by the value in Rsrc or by the immediate_value, storing the 32-bit result in Rdest.
+Flags Affected: OF (if result exceeds 32-bit signed range).
+DIV Rx, Ry / DIV Rx, imm
+Syntax: DIV <Rdest>, <Rsrc> OR DIV <Rdest>, <immediate_value>
+Description: Divides the value in Rdest by the value in Rsrc or by the immediate_value, storing the integer quotient in Rdest. Division by zero is an error.
+Flags Affected: OF (specifically if INT_MIN / -1, or on division by zero).
+MOD Rx, Ry / MOD Rx, imm
+Syntax: MOD <Rdest>, <Rsrc> OR MOD <Rdest>, <immediate_value>
+Description: Calculates the remainder of Rdest divided by Rsrc or by the immediate_value, storing the result in Rdest. Modulo by zero is an error.
+Flags Affected: None directly (division by zero is handled separately).
 INC Rx
-    Syntax: INC <Rreg>
-    Description: Increments the value in Rreg by 1.
-    Flags Affected: OF.
+Syntax: INC <Rreg>
+Description: Increments the value in Rreg by 1.
+Flags Affected: OF.
 DEC Rx
-    Syntax: DEC <Rreg>
-    Description: Decrements the value in Rreg by 1.
-    Flags Affected: OF.
+Syntax: DEC <Rreg>
+Description: Decrements the value in Rreg by 1.
+Flags Affected: OF.
 NEG Rx
-    Syntax: NEG <Rreg>
-    Description: Negates the value in Rreg (two's complement).
-    Flags Affected: OF (if negating INT_MIN).
+Syntax: NEG <Rreg>
+Description: Negates the value in Rreg (two's complement).
+Flags Affected: OF (if negating INT_MIN).
 ABS Rx
-    Syntax: ABS <Rreg>
-    Description: Takes the absolute value of the integer in Rreg.
-    Flags Affected: OF (if taking abs of INT_MIN).
+Syntax: ABS <Rreg>
+Description: Takes the absolute value of the integer in Rreg.
+Flags Affected: OF (if taking abs of INT_MIN).
 RVD Rx
-    Syntax: RVD <Rreg>
-    Description: Reverses the decimal digits of the value in Rreg (e.g., 123 becomes 321, -123 becomes -321).
-    Flags Affected: OF (if overflow occurs during reversal).
+Syntax: RVD <Rreg>
+Description: Reverses the decimal digits of the value in Rreg (e.g., 123 becomes 321, -123 becomes -321).
+Flags Affected: OF (if overflow occurs during reversal).
 INC_MEM Raddr
-    Syntax: INC_MEM <Raddr>
-    Description: Increments the 32-bit value at the memory location specified by Raddr.
-    Flags Affected: OF.
+Syntax: INC_MEM <Raddr>
+Description: Increments the 32-bit value at the memory location specified by Raddr.
+Flags Affected: OF.
 DEC_MEM Raddr
-    Syntax: DEC_MEM <Raddr>
-    Description: Decrements the 32-bit value at the memory location specified by Raddr.
-    Flags Affected: OF.
-
+Syntax: DEC_MEM <Raddr>
+Description: Decrements the 32-bit value at the memory location specified by Raddr.
+Flags Affected: OF.
 --- Logical and Bitwise Instructions ---
 NOT Rx
-    Syntax: NOT <Rreg>
-    Description: Performs a bitwise NOT (one's complement) on the value in Rreg.
-    Flags Affected: None.
-AND Rx, Ry
-    Syntax: AND <Rdest>, <Rsrc>
-    Description: Performs a bitwise AND between Rdest and Rsrc, storing the result in Rdest.
-    Flags Affected: None.
-OR Rx, Ry
-    Syntax: OR <Rdest>, <Rsrc>
-    Description: Performs a bitwise OR between Rdest and Rsrc, storing the result in Rdest.
-    Flags Affected: None.
-XOR Rx, Ry
-    Syntax: XOR <Rdest>, <Rsrc>
-    Description: Performs a bitwise XOR between Rdest and Rsrc, storing the result in Rdest.
-    Flags Affected: None.
+Syntax: NOT <Rreg>
+Description: Performs a bitwise NOT (one's complement) on the value in Rreg.
+Flags Affected: None.
+AND Rx, Ry / AND Rx, imm
+Syntax: AND <Rdest>, <Rsrc> OR AND <Rdest>, <immediate_value>
+Description: Performs a bitwise AND between Rdest and Rsrc or immediate_value, storing the result in Rdest.
+Flags Affected: None.
+OR Rx, Ry / OR Rx, imm
+Syntax: OR <Rdest>, <Rsrc> OR OR <Rdest>, <immediate_value>
+Description: Performs a bitwise OR between Rdest and Rsrc or immediate_value, storing the result in Rdest.
+Flags Affected: None.
+XOR Rx, Ry / XOR Rx, imm
+Syntax: XOR <Rdest>, <Rsrc> OR XOR <Rdest>, <immediate_value>
+Description: Performs a bitwise XOR between Rdest and Rsrc or immediate_value, storing the result in Rdest.
+Flags Affected: None.
 SHL Rx, imm
-    Syntax: SHL <Rreg>, <immediate_count>
-    Description: Performs a logical left shift on Rreg by immediate_count bits.
-    Flags Affected: None.
+Syntax: SHL <Rreg>, <immediate_count>
+Description: Performs a logical left shift on Rreg by immediate_count bits.
+Flags Affected: None.
 SHR Rx, imm
-    Syntax: SHR <Rreg>, <immediate_count>
-    Description: Performs a logical right shift on Rreg by immediate_count bits (zeros shifted in).
-    Flags Affected: None.
-SAR Rx, Rcount
-    Syntax: SAR <Rreg>, <Rcount>
-    Description: Performs an arithmetic right shift on Rreg by the number of bits specified in Rcount. Preserves the sign bit.
-    Flags Affected: None.
+Syntax: SHR <Rreg>, <immediate_count>
+Description: Performs a logical right shift on Rreg by immediate_count bits (zeros shifted in).
+Flags Affected: None.
+SAR Rx, Rcount / SAR Rx, imm
+Syntax: SAR <Rreg>, <Rcount> OR SAR <Rreg>, <immediate_count>
+Description: Performs an arithmetic right shift on Rreg by the number of bits specified in Rcount or by immediate_count. Preserves the sign bit.
+Flags Affected: None.
 ROL Rx, imm
-    Syntax: ROL <Rreg>, <immediate_count>
-    Description: Rotates the bits in Rreg to the left by immediate_count positions.
-    Flags Affected: None.
+Syntax: ROL <Rreg>, <immediate_count>
+Description: Rotates the bits in Rreg to the left by immediate_count positions.
+Flags Affected: None.
 ROR Rx, imm
-    Syntax: ROR <Rreg>, <immediate_count>
-    Description: Rotates the bits in Rreg to the right by immediate_count positions.
-    Flags Affected: None.
-TEST Rx, Ry
-    Syntax: TEST <R1>, <R2>
-    Description: Performs a bitwise AND between R1 and R2 but discards the result. Sets the Zero Flag (ZF) based on whether the result is zero. Used for checking bits without modifying operands.
-    Flags Affected: ZF, OF (cleared).
+Syntax: ROR <Rreg>, <immediate_count>
+Description: Rotates the bits in Rreg to the right by immediate_count positions.
+Flags Affected: None.
+TEST Rx, Ry / TEST Rx, imm
+Syntax: TEST <R1>, <R2> OR TEST <R1>, <immediate_value>
+Description: Performs a bitwise AND between R1 and R2 or immediate_value but discards the result. Sets the Zero Flag (ZF) based on whether the result is zero. Used for checking bits without modifying operands.
+Flags Affected: ZF, OF (cleared).
 BT Rx, bit_index
-    Syntax: BT <Rreg>, <immediate_bit_index> OR BT <Rreg>, <Rbit_index>
-    Description: Tests the bit specified by bit_index (0-31) in Rreg. Sets the Zero Flag (ZF) if the bit is 0, clears ZF if the bit is 1. The bit_index can be an immediate value or taken from a register.
-    Flags Affected: ZF.
+Syntax: BT <Rreg>, <immediate_bit_index> OR BT <Rreg>, <Rbit_index>
+Description: Tests the bit specified by immediate_bit_index or the value in Rbit_index (0-31) in Rreg. Sets the Zero Flag (ZF) if the bit is 0, clears ZF if the bit is 1.
+Flags Affected: ZF.
 BSET Rx, bit_index
-    Syntax: BSET <Rreg>, <immediate_bit_index> OR BSET <Rreg>, <Rbit_index>
-    Description: Sets the bit specified by bit_index (0-31) in Rreg to 1.
-    Flags Affected: None.
+Syntax: BSET <Rreg>, <immediate_bit_index> OR BSET <Rreg>, <Rbit_index>
+Description: Sets the bit specified by immediate_bit_index or the value in Rbit_index (0-31) in Rreg to 1.
+Flags Affected: None.
 BCLR Rx, bit_index
-    Syntax: BCLR <Rreg>, <immediate_bit_index> OR BCLR <Rreg>, <Rbit_index>
-    Description: Clears the bit specified by bit_index (0-31) in Rreg to 0.
-    Flags Affected: None.
+Syntax: BCLR <Rreg>, <immediate_bit_index> OR BCLR <Rreg>, <Rbit_index>
+Description: Clears the bit specified by immediate_bit_index or the value in Rbit_index (0-31) in Rreg to 0.
+Flags Affected: None.
 BTOG Rx, bit_index
-    Syntax: BTOG <Rreg>, <immediate_bit_index> OR BTOG <Rreg>, <Rbit_index>
-    Description: Toggles (flips) the bit specified by bit_index (0-31) in Rreg.
-    Flags Affected: None.
+Syntax: BTOG <Rreg>, <immediate_bit_index> OR BTOG <Rreg>, <Rbit_index>
+Description: Toggles (flips) the bit specified by immediate_bit_index or the value in Rbit_index (0-31) in Rreg.
+Flags Affected: None.
 CLR Rx
-    Syntax: CLR <Rreg>
-    Description: Clears the register Rreg by setting its value to 0. Equivalent to MOV Rreg, 0.
-    Flags Affected: None.
-
+Syntax: CLR <Rreg>
+Description: Clears the register Rreg by setting its value to 0. Equivalent to MOV Rreg, 0.
+Flags Affected: None.
 --- Control Flow Instructions ---
 JMP line/label
-    Syntax: JMP <target_line/label>
-    Description: Unconditionally jumps execution to the specified target_line number or label.
-    Flags Affected: None.
-CMP Rx, Ry
-    Syntax: CMP <R1>, <R2>
-    Description: Compares the integer values in R1 and R2 (by calculating R1 - R2) and sets the Z, G, L, and O flags accordingly. The result of the subtraction is discarded.
-    Flags Affected: ZF, GF, LF, OF.
+Syntax: JMP <target_line/label>
+Description: Unconditionally jumps execution to the specified target_line number or label.
+Flags Affected: None.
+CMP Rx, Ry / CMP Rx, imm
+Syntax: CMP <R1>, <R2> OR CMP <R1>, <immediate_value>
+Description: Compares the integer value in R1 with the value in R2 or with immediate_value (by calculating R1 - R2/imm) and sets the Z, G, L, and O flags accordingly. The result of the subtraction is discarded.
+Flags Affected: ZF, GF, LF, OF.
 JMPNE line/label (or JNE)
-    Syntax: JMPNE <target_line/label>
-    Description: Jumps to the target if the Zero Flag (ZF) is not set (i.e., last CMP/FCMP/TEST result was non-zero).
-    Flags Affected: None.
+Syntax: JMPNE <target_line/label>
+Description: Jumps to the target if the Zero Flag (ZF) is not set (i.e., last CMP/FCMP/TEST result was non-zero).
+Flags Affected: None.
 JMPE line/label (or JEQ)
-    Syntax: JMPE <target_line/label>
-    Description: Jumps to the target if the Zero Flag (ZF) is set (i.e., last CMP/FCMP/TEST result was zero).
-    Flags Affected: None.
+Syntax: JMPE <target_line/label>
+Description: Jumps to the target if the Zero Flag (ZF) is set (i.e., last CMP/FCMP/TEST result was zero).
+Flags Affected: None.
 JMPH line/label
-    Syntax: JMPH <target_line/label>
-    Description: Jumps to the target if the Greater Flag (GF) is set (i.e., last CMP/FCMP R1, R2 resulted in R1 > R2).
-    Flags Affected: None.
+Syntax: JMPH <target_line/label>
+Description: Jumps to the target if the Greater Flag (GF) is set (i.e., last CMP/FCMP R1, R2 resulted in R1 > R2).
+Flags Affected: None.
 JMPL line/label
-    Syntax: JMPL <target_line/label>
-    Description: Jumps to the target if the Less Flag (LF) is set (i.e., last CMP/FCMP R1, R2 resulted in R1 < R2).
-    Flags Affected: None.
+Syntax: JMPL <target_line/label>
+Description: Jumps to the target if the Less Flag (LF) is set (i.e., last CMP/FCMP R1, R2 resulted in R1 < R2).
+Flags Affected: None.
 JMPGE line/label
-    Syntax: JMPGE <target_line/label>
-    Description: Jumps to the target if the Less Flag (LF) is not set (i.e., last CMP/FCMP R1, R2 resulted in R1 >= R2).
-    Flags Affected: None.
+Syntax: JMPGE <target_line/label>
+Description: Jumps to the target if the Less Flag (LF) is not set (i.e., last CMP/FCMP R1, R2 resulted in R1 >= R2).
+Flags Affected: None.
 JMPLE line/label
-    Syntax: JMPLE <target_line/label>
-    Description: Jumps to the target if the Greater Flag (GF) is not set (i.e., last CMP/FCMP R1, R2 resulted in R1 <= R2).
-    Flags Affected: None.
+Syntax: JMPLE <target_line/label>
+Description: Jumps to the target if the Greater Flag (GF) is not set (i.e., last CMP/FCMP R1, R2 resulted in R1 <= R2).
+Flags Affected: None.
 JMPO line/label (or JO)
-    Syntax: JMPO <target_line/label>
-    Description: Jumps to the target if the Overflow Flag (OF) is set.
-    Flags Affected: None.
+Syntax: JMPO <target_line/label>
+Description: Jumps to the target if the Overflow Flag (OF) is set.
+Flags Affected: None.
 JMPNO line/label (or JNO)
-    Syntax: JMPNO <target_line/label>
-    Description: Jumps to the target if the Overflow Flag (OF) is not set.
-    Flags Affected: None.
+Syntax: JMPNO <target_line/label>
+Description: Jumps to the target if the Overflow Flag (OF) is not set.
+Flags Affected: None.
 CALL line/label
-    Syntax: CALL <target_line/label>
-    Description: Pushes the address of the next instruction onto the stack, then jumps to the target_line or label. Used for calling subroutines.
-    Flags Affected: None.
+Syntax: CALL <target_line/label>
+Description: Pushes the address of the next instruction onto the stack, then jumps to the target_line or label. Used for calling subroutines.
+Flags Affected: None.
 CALLH line/label
-    Syntax: CALLH <target_line/label>
-    Description: Calls the subroutine at the target if the Greater Flag (GF) is set.
-    Flags Affected: None.
+Syntax: CALLH <target_line/label>
+Description: Calls the subroutine at the target if the Greater Flag (GF) is set.
+Flags Affected: None.
 CALLL line/label
-    Syntax: CALLL <target_line/label>
-    Description: Calls the subroutine at the target if the Less Flag (LF) is set.
-    Flags Affected: None.
+Syntax: CALLL <target_line/label>
+Description: Calls the subroutine at the target if the Less Flag (LF) is set.
+Flags Affected: None.
 CALLE line/label
-    Syntax: CALLE <target_line/label>
-    Description: Calls the subroutine at the target if the Zero Flag (ZF) is set.
-    Flags Affected: None.
+Syntax: CALLE <target_line/label>
+Description: Calls the subroutine at the target if the Zero Flag (ZF) is set.
+Flags Affected: None.
 CALLNE line/label
-    Syntax: CALLNE <target_line/label>
-    Description: Calls the subroutine at the target if the Zero Flag (ZF) is not set.
-    Flags Affected: None.
+Syntax: CALLNE <target_line/label>
+Description: Calls the subroutine at the target if the Zero Flag (ZF) is not set.
+Flags Affected: None.
 CALLO line/label
-    Syntax: CALLO <target_line/label>
-    Description: Calls the subroutine at the target if the Overflow Flag (OF) is set.
-    Flags Affected: None.
+Syntax: CALLO <target_line/label>
+Description: Calls the subroutine at the target if the Overflow Flag (OF) is set.
+Flags Affected: None.
 CALLNO line/label
-    Syntax: CALLNO <target_line/label>
-    Description: Calls the subroutine at the target if the Overflow Flag (OF) is not set.
-    Flags Affected: None.
+Syntax: CALLNO <target_line/label>
+Description: Calls the subroutine at the target if the Overflow Flag (OF) is not set.
+Flags Affected: None.
 CALLHE line/label
-    Syntax: CALLHE <target_line/label>
-    Description: Calls the subroutine at the target if the Less Flag (LF) is not set (Higher or Equal).
-    Flags Affected: None.
+Syntax: CALLHE <target_line/label>
+Description: Calls the subroutine at the target if the Less Flag (LF) is not set (Higher or Equal).
+Flags Affected: None.
 CALLLE line/label
-    Syntax: CALLLE <target_line/label>
-    Description: Calls the subroutine at the target if the Greater Flag (GF) is not set (Lower or Equal).
-    Flags Affected: None.
+Syntax: CALLLE <target_line/label>
+Description: Calls the subroutine at the target if the Greater Flag (GF) is not set (Lower or Equal).
+Flags Affected: None.
 RET
-    Syntax: RET
-    Description: Pops a return address from the stack and jumps to that address. Used to return from subroutines called with CALL.
-    Flags Affected: None (unless the POPF instruction was used just before RET).
+Syntax: RET
+Description: Pops a return address from the stack and jumps to that address. Used to return from subroutines called with CALL.
+Flags Affected: None (unless the POPF instruction was used just before RET).
 LOOP Rx, line/label
-    Syntax: LOOP <Rcounter>, <target_line/label>
-    Description: Decrements Rcounter. If Rcounter is not zero after decrementing, jumps to the target.
-    Flags Affected: None directly by LOOP (counter register is modified).
+Syntax: LOOP <Rcounter>, <target_line/label>
+Description: Decrements Rcounter. If Rcounter is not zero after decrementing, jumps to the target.
+Flags Affected: None directly by LOOP (counter register is modified).
 LOOPE Rx, line/label (or LOOPZ)
-    Syntax: LOOPE <Rcounter>, <target_line/label>
-    Description: Decrements Rcounter. If Rcounter is not zero and the Zero Flag (ZF) is set, jumps to the target.
-    Flags Affected: None directly by LOOPE.
+Syntax: LOOPE <Rcounter>, <target_line/label>
+Description: Decrements Rcounter. If Rcounter is not zero and the Zero Flag (ZF) is set, jumps to the target.
+Flags Affected: None directly by LOOPE.
 LOOPNE Rx, line/label (or LOOPNZ)
-    Syntax: LOOPNE <Rcounter>, <target_line/label>
-    Description: Decrements Rcounter. If Rcounter is not zero and the Zero Flag (ZF) is clear, jumps to the target.
-    Flags Affected: None directly by LOOPNE.
+Syntax: LOOPNE <Rcounter>, <target_line/label>
+Description: Decrements Rcounter. If Rcounter is not zero and the Zero Flag (ZF) is clear, jumps to the target.
+Flags Affected: None directly by LOOPNE.
 LOOPO Rx, line/label
-    Syntax: LOOPO <Rcounter>, <target_line/label>
-    Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag (OF) is set, jumps to the target.
-    Flags Affected: None directly by LOOPO.
+Syntax: LOOPO <Rcounter>, <target_line/label>
+Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag (OF) is set, jumps to the target.
+Flags Affected: None directly by LOOPO.
 LOOPNO Rx, line/label
-    Syntax: LOOPNO <Rcounter>, <target_line/label>
-    Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag (OF) is clear, jumps to the target.
-    Flags Affected: None directly by LOOPNO.
+Syntax: LOOPNO <Rcounter>, <target_line/label>
+Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag (OF) is clear, jumps to the target.
+Flags Affected: None directly by LOOPNO.
 HLT
-    Syntax: HLT
-    Description: Halts CPU execution indefinitely.
-    Flags Affected: None.
+Syntax: HLT
+Description: Halts CPU execution indefinitely.
+Flags Affected: None.
 NOP
-    Syntax: NOP
-    Description: No operation. Does nothing.
-    Flags Affected: None.
+Syntax: NOP
+Description: No operation. Does nothing.
+Flags Affected: None.
 INT imm
-    Syntax: INT <interrupt_vector (hex)>
-    Description: Triggers a software interrupt specified by the interrupt_vector. See the Interrupts section for details. Requires interrupts to be enabled via ELI.
-    Flags Affected: Depends on the interrupt handler.
+Syntax: INT <interrupt_vector (hex)>
+Description: Triggers a software interrupt specified by the interrupt_vector. See the Interrupts section for details. Requires interrupts to be enabled via ELI.
+Flags Affected: Depends on the interrupt handler.
 ELI
-    Syntax: ELI
-    Description: Sets the internal interrupt enable flag, allowing subsequent INT instructions to execute their corresponding interrupt handlers.
-    Flags Affected: None.
+Syntax: ELI
+Description: Sets the internal interrupt enable flag, allowing subsequent INT instructions to execute their corresponding interrupt handlers.
+Flags Affected: None.
 DLI
-    Syntax: DLI
-    Description: Clears the internal interrupt enable flag. Subsequent INT instructions will cause an error or be ignored (implementation-defined halt).
-    Flags Affected: None.
-
+Syntax: DLI
+Description: Clears the internal interrupt enable flag. Subsequent INT instructions will cause an error or be ignored (implementation-defined halt).
+Flags Affected: None.
 --- Stack Instructions ---
 PUSH Rx
-    Syntax: PUSH <Rsrc>
-    Description: Decrements the Stack Pointer (SP) by sizeof(int), then stores the value from Rsrc at the memory location pointed to by SP.
-    Flags Affected: None.
+Syntax: PUSH <Rsrc>
+Description: Decrements the Stack Pointer (SP) by sizeof(int), then stores the value from Rsrc at the memory location pointed to by SP.
+Flags Affected: None.
 POP Rx
-    Syntax: POP <Rdest>
-    Description: Loads the value from the memory location pointed to by the Stack Pointer (SP) into Rdest, then increments SP by sizeof(int).
-    Flags Affected: None.
+Syntax: POP <Rdest>
+Description: Loads the value from the memory location pointed to by the Stack Pointer (SP) into Rdest, then increments SP by sizeof(int).
+Flags Affected: None.
 PUSHF
-    Syntax: PUSHF
-    Description: Pushes the current value of the flags register onto the stack (using sizeof(int)).
-    Flags Affected: None.
+Syntax: PUSHF
+Description: Pushes the current value of the flags register onto the stack (using sizeof(int)).
+Flags Affected: None.
 POPF
-    Syntax: POPF
-    Description: Pops a value from the stack into the flags register (using sizeof(int)), restoring the Z, G, L, O flags.
-    Flags Affected: ZF, GF, LF, OF (all potentially restored from stack).
-
+Syntax: POPF
+Description: Pops a value from the stack into the flags register (using sizeof(int)), restoring the Z, G, L, O flags.
+Flags Affected: ZF, GF, LF, OF (all potentially restored from stack).
 --- Flag Manipulation Instructions ---
 SETF imm
-    Syntax: SETF <hex_flag_mask>
-    Description: Sets the flags specified in the hex_flag_mask (e.g., SETF 0x01 sets ZF). Uses bitwise OR. SETF 0 sets all Z, G, L, O flags.
-    Flags Affected: Specified by the mask.
+Syntax: SETF <hex_flag_mask>
+Description: Sets the flags specified in the hex_flag_mask (e.g., SETF 0x01 sets ZF). Uses bitwise OR. SETF 0 sets all Z, G, L, O flags.
+Flags Affected: Specified by the mask.
 CLRF imm
-    Syntax: CLRF <hex_flag_mask> OR CLRF 0
-    Description: Clears the flags specified in the hex_flag_mask (e.g., CLRF 0x01 clears ZF). Uses bitwise AND NOT. CLRF 0 clears all Z, G, L, O flags.
-    Flags Affected: Specified by the mask.
-
+Syntax: CLRF <hex_flag_mask> OR CLRF 0
+Description: Clears the flags specified in the hex_flag_mask (e.g., CLRF 0x01 clears ZF). Uses bitwise AND NOT. CLRF 0 clears all Z, G, L, O flags.
+Flags Affected: Specified by the mask.
 --- String/Memory Block Instructions ---
 STRCMP Raddr1, Raddr2
-    Syntax: STRCMP <Raddr1>, <Raddr2>
-    Description: Compares the null-terminated strings starting at the memory addresses specified in Raddr1 and Raddr2. Sets Z, G, L flags similar to CMP based on lexicographical comparison.
-    Flags Affected: ZF, GF, LF.
+Syntax: STRCMP <Raddr1>, <Raddr2>
+Description: Compares the null-terminated strings starting at the memory addresses specified in Raddr1 and Raddr2. Sets Z, G, L flags similar to CMP based on lexicographical comparison.
+Flags Affected: ZF, GF, LF.
 STRLEN Rdest, Raddr
-    Syntax: STRLEN <Rdest>, <Raddr>
-    Description: Calculates the length of the null-terminated string starting at the memory address in Raddr and stores the length in Rdest.
-    Flags Affected: ZF (set if length is 0).
+Syntax: STRLEN <Rdest>, <Raddr>
+Description: Calculates the length of the null-terminated string starting at the memory address in Raddr and stores the length in Rdest.
+Flags Affected: ZF (set if length is 0).
 STRCPY RdestAddr, RsrcAddr
-    Syntax: STRCPY <Rdest_addr>, <Rsrc_addr>
-    Description: Copies the null-terminated string from the source address (Rsrc_addr) to the destination address (Rdest_addr). Warning: Does not check for buffer overflows in the destination.
-    Flags Affected: None.
+Syntax: STRCPY <Rdest_addr>, <Rsrc_addr>
+Description: Copies the null-terminated string from the source address (Rsrc_addr) to the destination address (Rdest_addr). Warning: Does not check for buffer overflows in the destination.
+Flags Affected: None.
 MEMCPY RdestAddr, RsrcAddr, Rlen
-    Syntax: MEMCPY <Rdest_addr>, <Rsrc_addr>, <Rlength>
-    Description: Copies Rlength bytes of memory from the source address (Rsrc_addr) to the destination address (Rdest_addr). Checks bounds before starting but not overlap during copy.
-    Flags Affected: None.
+Syntax: MEMCPY <Rdest_addr>, <Rsrc_addr>, <Rlength>
+Description: Copies Rlength bytes of memory from the source address (Rsrc_addr) to the destination address (Rdest_addr). Checks bounds before starting but not overlap during copy.
+Flags Affected: None.
 MEMSET RdestAddr, Rval, Rlen
-    Syntax: MEMSET <Rdest_addr>, <Rvalue>, <Rlength>
-    Description: Fills Rlength bytes of memory starting at Rdest_addr with the byte value specified by the lower 8 bits of Rvalue.
-    Flags Affected: None.
-
+Syntax: MEMSET <Rdest_addr>, <Rvalue>, <Rlength>
+Description: Fills Rlength bytes of memory starting at Rdest_addr with the byte value specified by the lower 8 bits of Rvalue.
+Flags Affected: None.
 --- Miscellaneous Instructions ---
 RND Rx
-    Syntax: RND <Rdest>
-    Description: Stores a pseudo-random integer into Rdest (using C's rand()).
-    Flags Affected: None.
-
+Syntax: RND <Rdest>
+Description: Stores a pseudo-random integer into Rdest (using C's rand()).
+Flags Affected: None.
 --- Floating Point Unit (FPU) Instructions ---
 FMOV Fx, Fy
-    Syntax: FMOV <Fdest>, <Fsrc>
-    Description: Copies the double-precision float value from Fsrc to Fdest.
-    Flags Affected: None.
+Syntax: FMOV <Fdest>, <Fsrc>
+Description: Copies the double-precision float value from Fsrc to Fdest.
+Flags Affected: None.
 FMOV Fx, f_imm
-    Syntax: FMOV <Fdest>, <immediate_float>
-    Description: Loads the immediate floating-point value into Fdest.
-    Flags Affected: None.
+Syntax: FMOV <Fdest>, <immediate_float>
+Description: Loads the immediate floating-point value into Fdest.
+Flags Affected: None.
 FLOAD Fdest, Raddr
-    Syntax: FLOAD <Fdest>, <Raddr_src>
-    Description: Loads a double-precision float (occupying sizeof(double) bytes) from the memory address specified in Raddr_src into Fdest.
-    Flags Affected: OF (cleared).
+Syntax: FLOAD <Fdest>, <Raddr_src>
+Description: Loads a double-precision float (occupying sizeof(double) bytes) from the memory address specified in Raddr_src into Fdest.
+Flags Affected: OF (cleared).
 FSTORE Raddr, Fsrc
-    Syntax: FSTORE <Raddr_dest>, <Fsrc>
-    Description: Stores the double-precision float from Fsrc into memory starting at the address specified in Raddr_dest (occupying sizeof(double) bytes).
-    Flags Affected: OF (cleared).
-FADD Fx, Fy
-    Syntax: FADD <Fdest>, <Fsrc>
-    Description: Adds the value in Fsrc to Fdest, storing the result in Fdest. (Fdest = Fdest + Fsrc).
-    Flags Affected: OF (set if result is +/- infinity).
-FSUB Fx, Fy
-    Syntax: FSUB <Fdest>, <Fsrc>
-    Description: Subtracts the value in Fsrc from Fdest, storing the result in Fdest. (Fdest = Fdest - Fsrc).
-    Flags Affected: OF (set if result is +/- infinity).
-FMUL Fx, Fy
-    Syntax: FMUL <Fdest>, <Fsrc>
-    Description: Multiplies the value in Fdest by the value in Fsrc, storing the result in Fdest.
-    Flags Affected: OF (set if result is +/- infinity).
-FDIV Fx, Fy
-    Syntax: FDIV <Fdest>, <Fsrc>
-    Description: Divides the value in Fdest by the value in Fsrc, storing the quotient in Fdest. Division by zero results in +/- infinity and sets OF.
-    Flags Affected: OF (set if result is +/- infinity or division by zero).
+Syntax: FSTORE <Raddr_dest>, <Fsrc>
+Description: Stores the double-precision float from Fsrc into memory starting at the address specified in Raddr_dest (occupying sizeof(double) bytes).
+Flags Affected: OF (cleared).
+FADD Fx, Fy / FADD Fx, f_imm
+Syntax: FADD <Fdest>, <Fsrc> OR FADD <Fdest>, <immediate_float>
+Description: Adds the value in Fsrc or the immediate_float value to Fdest, storing the result in Fdest. (Fdest = Fdest + Fsrc/f_imm).
+Flags Affected: OF (set if result is +/- infinity).
+FSUB Fx, Fy / FSUB Fx, f_imm
+Syntax: FSUB <Fdest>, <Fsrc> OR FSUB <Fdest>, <immediate_float>
+Description: Subtracts the value in Fsrc or the immediate_float value from Fdest, storing the result in Fdest. (Fdest = Fdest - Fsrc/f_imm).
+Flags Affected: OF (set if result is +/- infinity).
+FMUL Fx, Fy / FMUL Fx, f_imm
+Syntax: FMUL <Fdest>, <Fsrc> OR FMUL <Fdest>, <immediate_float>
+Description: Multiplies the value in Fdest by the value in Fsrc or by the immediate_float value, storing the result in Fdest.
+Flags Affected: OF (set if result is +/- infinity).
+FDIV Fx, Fy / FDIV Fx, f_imm
+Syntax: FDIV <Fdest>, <Fsrc> OR FDIV <Fdest>, <immediate_float>
+Description: Divides the value in Fdest by the value in Fsrc or by the immediate_float value, storing the quotient in Fdest. Division by zero results in +/- infinity and sets OF.
+Flags Affected: OF (set if result is +/- infinity or division by zero).
 FINC Fx
-    Syntax: FINC <Freg>
-    Description: Increments the value in Freg by 1.0.
-    Flags Affected: OF (set if result is +/- infinity).
+Syntax: FINC <Freg>
+Description: Increments the value in Freg by 1.0.
+Flags Affected: OF (set if result is +/- infinity).
 FDEC Fx
-    Syntax: FDEC <Freg>
-    Description: Decrements the value in Freg by 1.0.
-    Flags Affected: OF (set if result is +/- infinity).
+Syntax: FDEC <Freg>
+Description: Decrements the value in Freg by 1.0.
+Flags Affected: OF (set if result is +/- infinity).
 FNEG Fx
-    Syntax: FNEG <Freg>
-    Description: Negates the floating-point value in Freg.
-    Flags Affected: None.
+Syntax: FNEG <Freg>
+Description: Negates the floating-point value in Freg.
+Flags Affected: None.
 FABS Fx
-    Syntax: FABS <Freg>
-    Description: Takes the absolute value of the float in Freg.
-    Flags Affected: None.
+Syntax: FABS <Freg>
+Description: Takes the absolute value of the float in Freg.
+Flags Affected: None.
 FSQRT Fx
-    Syntax: FSQRT <Freg>
-    Description: Calculates the square root of the value in Freg. Results in NaN if input is negative (OF not set for NaN), sets OF if result is infinity.
-    Flags Affected: OF (if result is infinity).
-FCMP Fx, Fy
-    Syntax: FCMP <F1>, <F2>
-    Description: Compares the floating-point values in F1 and F2. Sets the main CPU flags Z, G, L based on the comparison (equality checked within a small epsilon).
-    Flags Affected: ZF, GF, LF, OF (cleared).
+Syntax: FSQRT <Freg>
+Description: Calculates the square root of the value in Freg. Results in NaN if input is negative (OF not set for NaN), sets OF if result is infinity.
+Flags Affected: OF (if result is infinity).
+FCMP Fx, Fy / FCMP Fx, f_imm
+Syntax: FCMP <F1>, <F2> OR FCMP <F1>, <immediate_float>
+Description: Compares the floating-point value in F1 with the value in F2 or with the immediate_float value. Sets the main CPU flags Z, G, L based on the comparison (equality checked within a small epsilon).
+Flags Affected: ZF, GF, LF, OF (cleared).
 FXCHG Fx, Fy
-    Syntax: FXCHG <F1>, <F2>
-    Description: Swaps the values of FPU register F1 and FPU register F2.
-    Flags Affected: None.
+Syntax: FXCHG <F1>, <F2>
+Description: Swaps the values of FPU register F1 and FPU register F2.
+Flags Affected: None.
 FCLR Fx
-    Syntax: FCLR <Freg>
-    Description: Clears the FPU register Freg by setting its value to 0.0.
-    Flags Affected: None.
+Syntax: FCLR <Freg>
+Description: Clears the FPU register Freg by setting its value to 0.0.
+Flags Affected: None.
 FPUSH Fx
-    Syntax: FPUSH <Fsrc>
-    Description: Decrements SP by sizeof(double) (aligned to sizeof(int)), then stores the value from Fsrc onto the stack.
-    Flags Affected: None.
+Syntax: FPUSH <Fsrc>
+Description: Decrements SP by sizeof(double) (aligned to sizeof(int)), then stores the value from Fsrc onto the stack.
+Flags Affected: None.
 FPOP Fx
-    Syntax: FPOP <Fdest>
-    Description: Loads a double value from the stack location pointed to by SP into Fdest, then increments SP by sizeof(double) (aligned to sizeof(int)).
-    Flags Affected: None.
+Syntax: FPOP <Fdest>
+Description: Loads a double value from the stack location pointed to by SP into Fdest, then increments SP by sizeof(double) (aligned to sizeof(int)).
+Flags Affected: None.
 CVTIF Fdest, Rsrc
-    Syntax: CVTIF <Fdest>, <Rsrc>
-    Description: Converts the integer value in Rsrc to a double-precision float and stores it in Fdest.
-    Flags Affected: OF (cleared).
+Syntax: CVTIF <Fdest>, <Rsrc>
+Description: Converts the integer value in Rsrc to a double-precision float and stores it in Fdest.
+Flags Affected: OF (cleared).
 CVTFI Rdest, Fsrc
-    Syntax: CVTFI <Rdest>, <Fsrc>
-    Description: Converts the double-precision float in Fsrc to an integer (rounding to nearest, half to even) and stores it in Rdest.
-    Flags Affected: OF (set if the rounded float value is outside the range of a signed 32-bit integer or is NaN).
-
-
+Syntax: CVTFI <Rdest>, <Fsrc>
+Description: Converts the double-precision float in Fsrc to an integer (rounding to nearest, half to even) and stores it in Rdest.
+Flags Affected: OF (set if the rounded float value is outside the range of a signed 32-bit integer or is NaN).
 Interrupts (INT)
 Interrupts provide access to system services like I/O, graphics, audio, and time. The desired service is specified by the interrupt number (vector) given as an immediate hex value to the INT instruction. Requires interrupts to be enabled via ELI. Registers (usually R0, R1, etc.) are used to pass parameters.
-
 --- Console Input/Output ---
 0x00 (INT_NOP)
-    Description: No operation. Same as the NOP instruction.
-    Input: None. Output: None.
+Description: No operation. Same as the NOP instruction.
+Input: None. Output: None.
 0x01 (INT_PRINT_REG0)
-    Description: Prints the signed integer value of R0 to the console, followed by a newline.
-    Input: R0 = Integer value to print. Output: Value printed to standard output.
+Description: Prints the signed integer value of R0 to the console, followed by a newline.
+Input: R0 = Integer value to print. Output: Value printed to standard output.
 0x02 (INT_PRINT_STRING)
-    Description: Prints the null-terminated string starting at the memory address specified in R0 to the console, followed by a newline.
-    Input: R0 = Starting memory address of the string. Output: String printed to standard output.
+Description: Prints the null-terminated string starting at the memory address specified in R0 to the console, followed by a newline.
+Input: R0 = Starting memory address of the string. Output: String printed to standard output.
 0x03 (INT_PRINT_NEWLINE)
-    Description: Prints a newline character (\n) to the console.
-    Input: None. Output: Newline printed to standard output.
+Description: Prints a newline character (\n) to the console.
+Input: None. Output: Newline printed to standard output.
 0x04 (INT_GET_CHAR)
-    Description: Reads a single character from standard input (keyboard) and stores its ASCII value in R0. Waits for input.
-    Input: None. Output: R0 = ASCII value of the character read.
+Description: Reads a single character from standard input (keyboard) and stores its ASCII value in R0. Waits for input.
+Input: None. Output: R0 = ASCII value of the character read.
 0x05 (INT_GET_STRING)
-    Description: Reads a line of text from standard input into the memory buffer starting at the address in R0. Reading stops after R1-1 characters or a newline. The stored string is null-terminated.
-    Input: R0 = Starting memory address of the buffer, R1 = Maximum number of characters to read (including null terminator). Output: String read into memory at R0.
+Description: Reads a line of text from standard input into the memory buffer starting at the address in R0. Reading stops after R1-1 characters or a newline. The stored string is null-terminated.
+Input: R0 = Starting memory address of the buffer, R1 = Maximum number of characters to read (including null terminator). Output: String read into memory at R0.
 0x06 (INT_PRINT_HEX_REG0)
-    Description: Prints the value of R0 as an uppercase hexadecimal number (e.g., 0xFF), followed by a newline.
-    Input: R0 = Value to print. Output: Hex value printed to standard output.
+Description: Prints the value of R0 as an uppercase hexadecimal number (e.g., 0xFF), followed by a newline.
+Input: R0 = Value to print. Output: Hex value printed to standard output.
 0x07 (INT_CLEAR_SCREEN_OS)
-    Description: Clears the host operating system's console screen (cls or clear).
-    Input: None. Output: Console screen cleared.
+Description: Clears the host operating system's console screen (cls or clear).
+Input: None. Output: Console screen cleared.
 0x08 (INT_SET_CONSOLE_COLOR)
-    Description: Sets the foreground and background colors for subsequent text printed to the console. Uses Windows console color codes (0-15) or attempts ANSI equivalents on other platforms.
-    Input: R0 = Foreground color code (0-15), R1 = Background color code (0-15). Output: Console colors changed.
-    Notes: Colors: 0=Black, 1=Blue, 2=Green, 3=Cyan, 4=Red, 5=Magenta, 6=Brown, 7=LightGray, 8=Gray, 9=LightBlue, 10=LightGreen, 11=LightCyan, 12=LightRed, 13=LightMagenta, 14=Yellow, 15=White. ANSI support may vary.
+Description: Sets the foreground and background colors for subsequent text printed to the console. Uses Windows console color codes (0-15) or attempts ANSI equivalents on other platforms.
+Input: R0 = Foreground color code (0-15), R1 = Background color code (0-15). Output: Console colors changed.
+Notes: Colors: 0=Black, 1=Blue, 2=Green, 3=Cyan, 4=Red, 5=Magenta, 6=Brown, 7=LightGray, 8=Gray, 9=LightBlue, 10=LightGreen, 11=LightCyan, 12=LightRed, 13=LightMagenta, 14=Yellow, 15=White. ANSI support may vary.
 0x09 (INT_RESET_CONSOLE_COLOR)
-    Description: Resets the console text colors to the default.
-    Input: None. Output: Console colors reset.
+Description: Resets the console text colors to the default.
+Input: None. Output: Console colors reset.
 0x0A (INT_GOTOXY)
-    Description: Moves the console cursor to the specified column and row.
-    Input: R0 = Column (0-based), R1 = Row (0-based). Output: Console cursor position changed.
-    Notes: Uses SetConsoleCursorPosition on Windows, ANSI escape codes otherwise. Behavior might differ slightly.
+Description: Moves the console cursor to the specified column and row.
+Input: R0 = Column (0-based), R1 = Row (0-based). Output: Console cursor position changed.
+Notes: Uses SetConsoleCursorPosition on Windows, ANSI escape codes otherwise. Behavior might differ slightly.
 0x0B (INT_GETXY)
-    Description: Gets the current console cursor position.
-    Input: None. Output: R0 = Current Column (0-based), R1 = Current Row (0-based).
-    Notes: Only reliably implemented on Windows. Returns -1 in R0/R1 on other platforms or if detection fails.
+Description: Gets the current console cursor position.
+Input: None. Output: R0 = Current Column (0-based), R1 = Current Row (0-based).
+Notes: Only reliably implemented on Windows. Returns -1 in R0/R1 on other platforms or if detection fails.
 0x0C (INT_GET_CONSOLE_SIZE)
-    Description: Gets the dimensions (width and height in characters) of the console window.
-    Input: None. Output: R0 = Console Width, R1 = Console Height.
-    Notes: Uses GetConsoleScreenBufferInfo on Windows, ioctl otherwise. Returns -1 if detection fails.
+Description: Gets the dimensions (width and height in characters) of the console window.
+Input: None. Output: R0 = Console Width, R1 = Console Height.
+Notes: Uses GetConsoleScreenBufferInfo on Windows, ioctl otherwise. Returns -1 if detection fails.
 0x0D (INT_SET_CONSOLE_TITLE)
-    Description: Sets the title of the console window.
-    Input: R0 = Memory address of the null-terminated title string. Output: Console window title changed.
-    Notes: Uses SetConsoleTitle on Windows, ANSI escape codes otherwise.
+Description: Sets the title of the console window.
+Input: R0 = Memory address of the null-terminated title string. Output: Console window title changed.
+Notes: Uses SetConsoleTitle on Windows, ANSI escape codes otherwise.
 0x0E (INT_PRINT_FREG0)
-    Description: Prints the double-precision floating-point value of F0 to the console, followed by a newline. Uses standard float formatting (e.g., %f).
-    Input: F0 = Float value to print.
-    Output: Value printed to standard output.
-
+Description: Prints the double-precision floating-point value of F0 to the console, followed by a newline. Uses standard float formatting (e.g., %f).
+Input: F0 = Float value to print.
+Output: Value printed to standard output.
 --- Graphics Output / Control ---
 0x10 (INT_DRAW_PIXEL)
-    Description: Draws a single pixel on the graphics screen at the specified coordinates with the given palette color.
-    Input: R0 = X coordinate (0-based), R1 = Y coordinate (0-based), R2 = Palette color index (0-15). Output: Pixel drawn in the internal screen buffer. Updated on screen if INT_SCREEN_ON active.
-    Notes: Out-of-bounds coordinates or invalid color indices are ignored.
+Description: Draws a single pixel on the graphics screen at the specified coordinates with the given palette color.
+Input: R0 = X coordinate (0-based), R1 = Y coordinate (0-based), R2 = Palette color index (0-15). Output: Pixel drawn in the internal screen buffer. Updated on screen if INT_SCREEN_ON active.
+Notes: Out-of-bounds coordinates or invalid color indices are ignored.
 0x11 (INT_CLEAR_GFX_SCREEN)
-    Description: Fills the entire graphics screen buffer with the specified palette color.
-    Input: R0 = Palette color index (0-15) to clear with. Output: Screen buffer cleared. Updated on screen if INT_SCREEN_ON active.
+Description: Fills the entire graphics screen buffer with the specified palette color.
+Input: R0 = Palette color index (0-15) to clear with. Output: Screen buffer cleared. Updated on screen if INT_SCREEN_ON active.
 0x12 (INT_SCREEN_ON)
-    Description: Enables automatic screen updates after graphics operations (INT_DRAW_PIXEL, INT_CLEAR_GFX_SCREEN, INT_DRAW_STRING_GFX, INT_BLIT). Updates the screen immediately when called.
-    Input: None. Output: Screen updates enabled.
+Description: Enables automatic screen updates after graphics operations (INT_DRAW_PIXEL, INT_CLEAR_GFX_SCREEN, INT_DRAW_STRING_GFX, INT_BLIT). Updates the screen immediately when called.
+Input: None. Output: Screen updates enabled.
 0x13 (INT_SCREEN_OFF)
-    Description: Disables automatic screen updates. Graphics operations will only affect the internal buffer until INT_SCREEN_ON or INT_UPDATE_GFX_SCREEN is called.
-    Input: None. Output: Screen updates disabled.
+Description: Disables automatic screen updates. Graphics operations will only affect the internal buffer until INT_SCREEN_ON or INT_UPDATE_GFX_SCREEN is called.
+Input: None. Output: Screen updates disabled.
 0x14 (INT_SET_RESOLUTION)
-    Description: Changes the graphics screen resolution. This reallocates the pixel buffer, destroys/recreates the SDL texture, and resizes the window. The screen content is lost.
-    Input: R0 = New width, R1 = New height. Output: Screen resolution changed (if valid and different).
-    Notes: Maximum dimensions defined by MAX_SCREEN_DIM. Invalid dimensions are ignored.
+Description: Changes the graphics screen resolution. This reallocates the pixel buffer, destroys/recreates the SDL texture, and resizes the window. The screen content is lost.
+Input: R0 = New width, R1 = New height. Output: Screen resolution changed (if valid and different).
+Notes: Maximum dimensions defined by MAX_SCREEN_DIM. Invalid dimensions are ignored.
 0x15 (INT_GET_PIXEL)
-    Description: Gets the palette color index of the pixel at the specified coordinates.
-    Input: R0 = X coordinate, R1 = Y coordinate. Output: R0 = Palette color index (0-15), or -1 if coordinates are out of bounds or pixel buffer is unavailable.
+Description: Gets the palette color index of the pixel at the specified coordinates.
+Input: R0 = X coordinate, R1 = Y coordinate. Output: R0 = Palette color index (0-15), or -1 if coordinates are out of bounds or pixel buffer is unavailable.
 0x16 (INT_DRAW_STRING_GFX)
-    Description: Draws a null-terminated string onto the graphics screen using the built-in 8x16 VGA font.
-    Input: R0 = X coordinate (top-left), R1 = Y coordinate (top-left), R2 = Memory address of the string, R3 = Palette color index (0-15) for the text. Output: String drawn in the internal screen buffer. Updated on screen if INT_SCREEN_ON active.
-    Notes: Characters are 8 pixels wide, 16 pixels high. Only foreground color is used (no background).
+Description: Draws a null-terminated string onto the graphics screen using the built-in 8x16 VGA font.
+Input: R0 = X coordinate (top-left), R1 = Y coordinate (top-left), R2 = Memory address of the string, R3 = Palette color index (0-15) for the text. Output: String drawn in the internal screen buffer. Updated on screen if INT_SCREEN_ON active.
+Notes: Characters are 8 pixels wide, 16 pixels high. Only foreground color is used (no background).
 0x17 (INT_BLIT)
-    Description: Copies a rectangular block of pixel data (palette indices) from CPU memory onto the graphics screen buffer.
-    Input: R0 = Destination X (top-left), R1 = Destination Y (top-left), R2 = Source memory address, R3 = Source width, R4 = Source height. Output: Pixel data copied to the screen buffer. Updated on screen if INT_SCREEN_ON active.
-    Notes: Memory layout is assumed row-major (index = y * width + x). Invalid memory ranges or dimensions cause the operation to fail or be ignored. Palette indices outside 0-15 in memory are ignored during blit.
+Description: Copies a rectangular block of pixel data (palette indices) from CPU memory onto the graphics screen buffer.
+Input: R0 = Destination X (top-left), R1 = Destination Y (top-left), R2 = Source memory address, R3 = Source width, R4 = Source height. Output: Pixel data copied to the screen buffer. Updated on screen if INT_SCREEN_ON active.
+Notes: Memory layout is assumed row-major (index = y * width + x). Invalid memory ranges or dimensions cause the operation to fail or be ignored. Palette indices outside 0-15 in memory are ignored during blit.
 0x18 (INT_GET_SCREEN_SIZE)
-    Description: Gets the current graphics screen dimensions.
-    Input: None. Output: R0 = Current screen width, R1 = Current screen height.
+Description: Gets the current graphics screen dimensions.
+Input: None. Output: R0 = Current screen width, R1 = Current screen height.
 0x19 (INT_UPDATE_GFX_SCREEN)
-    Description: Manually updates the screen with the current contents of the internal graphics buffer. Useful when automatic updates (INT_SCREEN_ON) are disabled for performance.
-    Input: None. Output: Screen display updated.
-
+Description: Manually updates the screen with the current contents of the internal graphics buffer. Useful when automatic updates (INT_SCREEN_ON) are disabled for performance.
+Input: None. Output: Screen display updated.
 --- Audio Control ---
 0x20 (INT_SPEAKER_ON)
-    Description: Enables audio output using the current frequency and volume. Cancels any active INT_SPEAKER_SLEEP.
-    Input: None. Output: Audio generation enabled.
+Description: Enables audio output using the current frequency and volume. Cancels any active INT_SPEAKER_SLEEP.
+Input: None. Output: Audio generation enabled.
 0x21 (INT_SPEAKER_OFF)
-    Description: Disables audio output. Cancels any active INT_SPEAKER_SLEEP.
-    Input: None. Output: Audio generation disabled.
+Description: Disables audio output. Cancels any active INT_SPEAKER_SLEEP.
+Input: None. Output: Audio generation disabled.
 0x22 (INT_SET_FREQ)
-    Description: Sets the frequency (in Hz) for the audio output.
-    Input: R0 = Frequency (Hz). Output: Audio frequency changed.
+Description: Sets the frequency (in Hz) for the audio output.
+Input: R0 = Frequency (Hz). Output: Audio frequency changed.
 0x23 (INT_SET_VOLUME)
-    Description: Sets the volume for the audio output (0-100).
-    Input: R0 = Volume (0-100). Output: Audio volume changed (internally scaled 0.0-1.0).
+Description: Sets the volume for the audio output (0-100).
+Input: R0 = Volume (0-100). Output: Audio volume changed (internally scaled 0.0-1.0).
 0x24 (INT_SPEAKER_SLEEP)
-    Description: Makes the speaker silent for a specific duration, even if INT_SPEAKER_ON is active. After the duration, if the speaker is still "on", sound resumes.
-    Input: R0 = Duration in milliseconds. Output: Speaker temporarily silenced.
-
+Description: Makes the speaker silent for a specific duration, even if INT_SPEAKER_ON is active. After the duration, if the speaker is still "on", sound resumes.
+Input: R0 = Duration in milliseconds. Output: Speaker temporarily silenced.
 --- Time / Date / Sleep ---
 0x30 (INT_SLEEP_MS)
-    Description: Pauses CPU execution for the specified number of milliseconds.
-    Input: R0 = Milliseconds to sleep. Output: Execution paused.
+Description: Pauses CPU execution for the specified number of milliseconds.
+Input: R0 = Milliseconds to sleep. Output: Execution paused.
 0x31 (INT_GET_TIME)
-    Description: Gets the current system time (Hour, Minute, Second).
-    Input: None. Output: R0 = Hour (0-23), R1 = Minute (0-59), R2 = Second (0-59).
+Description: Gets the current system time (Hour, Minute, Second).
+Input: None. Output: R0 = Hour (0-23), R1 = Minute (0-59), R2 = Second (0-59).
 0x32 (INT_GET_TICKS)
-    Description: Gets the number of milliseconds elapsed since the SDL library was initialized. Useful for timing.
-    Input: None. Output: R0 = Milliseconds since SDL init (SDL_GetTicks()).
+Description: Gets the number of milliseconds elapsed since the SDL library was initialized. Useful for timing.
+Input: None. Output: R0 = Milliseconds since SDL init (SDL_GetTicks()).
 0x33 (INT_GET_DATETIME)
-    Description: Gets the current system date and time.
-    Input: None. Output: R0 = Year, R1 = Month (1-12), R2 = Day (1-31), R3 = Hour (0-23), R4 = Minute (0-59), R5 = Second (0-59).
-
+Description: Gets the current system date and time.
+Input: None. Output: R0 = Year, R1 = Month (1-12), R2 = Day (1-31), R3 = Hour (0-23), R4 = Minute (0-59), R5 = Second (0-59).
 --- CPU / System / Memory Control ---
 0x40 (INT_RESET_CPU)
-    Description: Resets the CPU state (registers, flags, IP, SP) and clears memory to zero. Graphics/audio settings (resolution, palette, sound state) are preserved across the reset. Files and the disk image remain open.
-    Input: None. Output: CPU state reset. Execution restarts from the beginning of the loaded program (IP=0).
+Description: Resets the CPU state (registers, flags, IP, SP) and clears memory to zero. Graphics/audio settings (resolution, palette, sound state) are preserved across the reset. Files and the disk image remain open.
+Input: None. Output: CPU state reset. Execution restarts from the beginning of the loaded program (IP=0).
 0x41 (INT_SYSTEM_SHUTDOWN)
-    Description: Requests the emulator to shut down cleanly. Stops execution.
-    Input: None. Output: Emulator terminates.
+Description: Requests the emulator to shut down cleanly. Stops execution.
+Input: None. Output: Emulator terminates.
 0x42 (INT_GET_MEMORY_SIZE)
-    Description: Gets the total configured memory size in bytes.
-    Input: None. Output: R0 = MEMORY_SIZE.
+Description: Gets the total configured memory size in bytes.
+Input: None. Output: R0 = MEMORY_SIZE.
 0x43 (INT_BREAKPOINT)
-    Description: Triggers a host debugger breakpoint if the emulator is run under a debugger (__debugbreak() / __builtin_trap() / raise(SIGTRAP)).
-    Input: None. Output: Debugger break (if attached).
+Description: Triggers a host debugger breakpoint if the emulator is run under a debugger (__debugbreak() / __builtin_trap() / raise(SIGTRAP)).
+Input: None. Output: Debugger break (if attached).
 0x44 (INT_DUMP_REGISTERS)
-    Description: Prints the current state of all general-purpose registers (R0-R31), FPU registers (F0-F7), IP, SP, and Flags to the console.
-    Input: None. Output: Register dump printed to standard output.
+Description: Prints the current state of all general-purpose registers (R0-R31), FPU registers (F0-F7), IP, SP, and Flags to the console.
+Input: None. Output: Register dump printed to standard output.
 0x45 (INT_DUMP_MEMORY)
-    Description: Prints a hexadecimal dump of a portion of CPU memory to the console.
-    Input: R0 = Starting memory address, R1 = Number of bytes to dump. Output: Memory dump printed to standard output.
-
+Description: Prints a hexadecimal dump of a portion of CPU memory to the console.
+Input: R0 = Starting memory address, R1 = Number of bytes to dump. Output: Memory dump printed to standard output.
 --- Input Device State ---
 0x50 (INT_GET_KEY_STATE)
-    Description: Checks if a specific keyboard key is currently pressed down. Uses SDL Scancodes.
-    Input: R0 = SDL_Scancode value of the key to check. Output: R0 = 1 if the key is pressed, 0 otherwise.
-    Notes: Scancodes are different from ASCII or key symbols (e.g., SDL_SCANCODE_A for the 'A' key). Requires SDL_PumpEvents.
+Description: Checks if a specific keyboard key is currently pressed down. Uses SDL Scancodes.
+Input: R0 = SDL_Scancode value of the key to check. Output: R0 = 1 if the key is pressed, 0 otherwise.
+Notes: Scancodes are different from ASCII or key symbols (e.g., SDL_SCANCODE_A for the 'A' key). Requires SDL_PumpEvents.
 0x51 (INT_WAIT_FOR_KEY)
-    Description: Pauses execution until any key is pressed on the keyboard. Returns the scancode of the pressed key. Handles SDL Quit events.
-    Input: None. Output: R0 = SDL_Scancode of the key pressed, or -1 if SDL Quit event occurred.
+Description: Pauses execution until any key is pressed on the keyboard. Returns the scancode of the pressed key. Handles SDL Quit events.
+Input: None. Output: R0 = SDL_Scancode of the key pressed, or -1 if SDL Quit event occurred.
 0x52 (INT_GET_MOUSE_STATE)
-    Description: Gets the current mouse cursor position relative to the graphics window and the state of the buttons.
-    Input: None. Output: R0 = Mouse X coordinate, R1 = Mouse Y coordinate, R2 = Button state bitmask (Bit 0=Left, Bit 1=Middle, Bit 2=Right).
-    Notes: Requires SDL_PumpEvents.
-
+Description: Gets the current mouse cursor position relative to the graphics window and the state of the buttons.
+Input: None. Output: R0 = Mouse X coordinate, R1 = Mouse Y coordinate, R2 = Button state bitmask (Bit 0=Left, Bit 1=Middle, Bit 2=Right).
+Notes: Requires SDL_PumpEvents.
 --- Disk I/O ---
 0x60 (INT_DISK_READ)
-    Description: Reads one or more sectors from the simulated disk image file (disk.img) into CPU memory.
-    Input: R0 = Starting sector number (0-based), R1 = Destination memory address, R2 = Number of sectors to read. Output: R0 = Status code (0=Success, 1=Invalid Sector Range, 2=Invalid Memory Range, 3=File I/O Error). Data read into memory on success.
-    Notes: Sector size is fixed at DISK_SECTOR_SIZE (512 bytes). Disk image must be present and accessible.
+Description: Reads one or more sectors from the simulated disk image file (disk.img) into CPU memory.
+Input: R0 = Starting sector number (0-based), R1 = Destination memory address, R2 = Number of sectors to read. Output: R0 = Status code (0=Success, 1=Invalid Sector Range, 2=Invalid Memory Range, 3=File I/O Error). Data read into memory on success.
+Notes: Sector size is fixed at DISK_SECTOR_SIZE (512 bytes). Disk image must be present and accessible.
 0x61 (INT_DISK_WRITE)
-    Description: Writes one or more sectors from CPU memory to the simulated disk image file (disk.img).
-    Input: R0 = Starting sector number (0-based), R1 = Source memory address, R2 = Number of sectors to write. Output: R0 = Status code (0=Success, 1=Invalid Sector Range, 2=Invalid Memory Range, 3=File I/O Error). Data written to disk image on success.
+Description: Writes one or more sectors from CPU memory to the simulated disk image file (disk.img).
+Input: R0 = Starting sector number (0-based), R1 = Source memory address, R2 = Number of sectors to write. Output: R0 = Status code (0=Success, 1=Invalid Sector Range, 2=Invalid Memory Range, 3=File I/O Error). Data written to disk image on success.
 0x62 (INT_DISK_INFO)
-    Description: Gets information about the simulated disk.
-    Input: None. Output: R0 = Total number of sectors on the disk, R1 = Size of each sector in bytes. Returns -1/0 if disk is not open.
+Description: Gets information about the simulated disk.
+Input: None. Output: R0 = Total number of sectors on the disk, R1 = Size of each sector in bytes. Returns -1/0 if disk is not open.
 0x63 (INT_DISK_FORMAT)
-    Description: Formats the simulated disk.
-    Input: None. Output: R0 = Status
+Description: Writes zeros to all sectors of the simulated disk image file (disk.img), effectively formatting it.
+Input: None. Output: R0 = Status code (0=Success, 3=File I/O Error).

@@ -279,7 +279,9 @@ Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag 
 Flags Affected: None directly by LOOPNO.
 HLT
 Syntax: HLT
-Description: Halts CPU execution indefinitely.
+Description: Behavior depends on the interrupt enable flag.
+    - If interrupts are DISABLED (via DLI or initial state): Halts CPU execution indefinitely by stopping the main execution loop.
+    - If interrupts are ENABLED (via ELI): Effectively acts as a NOP for the current cycle, allowing execution to proceed immediately to the next instruction. This simulates an immediate 'wakeup signal' when interrupts are active.
 Flags Affected: None.
 NOP
 Syntax: NOP

@@ -3893,7 +3893,10 @@ void nop(VirtualCPU* cpu) {
 }
 
 void hlt(VirtualCPU* cpu, bool* running_flag) {
-    for (;;){
+    if (cpu->interrupts_enabled) {
+    }
+    else {
+        *running_flag = false;
     }
 }
 

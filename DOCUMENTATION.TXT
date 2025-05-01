@@ -17,6 +17,7 @@ assembly Features: Supports labels for jumps/calls, comments (;), and basic prep
 #ifdef SYMBOL`, `#ifndef SYMBOL`, `#else`, `#endif`: Provide conditional compilation based on whether `SYMBOL` was previously defined (via `#define` in an active block). Supports nesting up to MAX_PREPROC_DEPTH`. These directives control which lines (including other `#define`s) are passed to the subsequent assembly stages. Mismatched directives or exceeding nesting depth will halt loading.
 #warning message`: Outputs a warning message to the console during loading. Processed only if in an active block.
 #error message`: Outputs an error message to the console and halts the loading process. Processed only if in an active block.
+The program entry begins at _main label
 Status Flags
 The CPU has a single 32-bit flags register. Specific bits indicate the result of the last operation that affects flags (primarily CMP, FCMP, and TEST, but also arithmetic for FLAG_OVERFLOW).
 FLAG_ZERO (ZF) - Bit 0 (0x01):

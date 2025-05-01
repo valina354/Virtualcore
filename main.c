@@ -2139,6 +2139,11 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         for (int i = 0; i < NUM_REGISTERS; i++) {
             printf(" R%d: %d (0x%X)\n", i, cpu->registers[i], cpu->registers[i]);
         }
+        printf("--- FPU Register Dump ---\n");
+        for (int i = 0; i < NUM_F_REGISTERS; i++) {
+            printf(" F%d: %g\n", i, cpu->f_registers[i]);
+        }
+        printf("--- CPU State ---\n");
         printf(" IP: %d\n", cpu->ip);
         printf(" Flags: 0x%X (Z:%d G:%d L:%d O:%d)\n", cpu->flags,
             (cpu->flags & FLAG_ZERO) ? 1 : 0,

@@ -1227,9 +1227,25 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             strncpy(token_buffer, token_start, token_len);
             token_buffer[token_len] = '\0';
 
+            if ((token_buffer[0] == 'r' || token_buffer[0] == 'f') && isdigit((unsigned char)token_buffer[1])) {
+                bool all_digits = true;
+                for (int k = 1; token_buffer[k] != '\0'; ++k) {
+                    if (!isdigit((unsigned char)token_buffer[k])) {
+                        all_digits = false;
+                        break;
+                    }
+                }
+                if (all_digits) {
+                    token_buffer[0] = toupper((unsigned char)token_buffer[0]);
+                    line_changed = true;
+                    strcat(processed_line, token_buffer);
+                    continue;
+                }
+            }
+
             bool replaced = false;
             if (!((token_buffer[0] == 'R' || token_buffer[0] == 'r') && isdigit((unsigned char)token_buffer[1])) &&
-                !((token_buffer[0] == 'F' || token_buffer[0] == 'f') && isdigit((unsigned char)token_buffer[1])) && // Check for F registers
+                !((token_buffer[0] == 'F' || token_buffer[0] == 'f') && isdigit((unsigned char)token_buffer[1])) &&
                 !(isdigit((unsigned char)token_buffer[0]) || (token_buffer[0] == '-' && isdigit((unsigned char)token_buffer[1]))) &&
                 !(token_buffer[0] == '0' && (token_buffer[1] == 'x' || token_buffer[1] == 'X')))
             {
@@ -1839,8 +1855,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
     break;
     case INT_GET_PIXEL: // 0x15
     {
-        if (cpu->screen_on == 1) {
-        }
         int x = cpu->registers[0];
         int y = cpu->registers[1];
         int result_reg = 0;
@@ -1865,8 +1879,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
                     break;
                 }
             }
-        }
-        else {
         }
     }
     break;

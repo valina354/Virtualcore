@@ -949,7 +949,7 @@ InstructionType parseInstruction(const char* instruction) {
     return INVALID_INST;
 }
 
-int loadProgram(const char* filename, char* program[], int max_size) {
+int loadProgram(const char* filename, char* program[], int max_size, int* out_start_ip) {
     FILE* file = fopen(filename, "r");
     if (!file) {
         fprintf(stderr, "Error: Cannot open program file '%s'\n", filename);
@@ -987,10 +987,23 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         return -2;
     }
     int label_count = 0;
+    int main_label_line = -1;
 
     PreprocessorState preproc_stack[MAX_PREPROC_DEPTH];
     int preproc_stack_ptr = -1;
     bool currently_active = true;
+
+    if (out_start_ip) {
+        *out_start_ip = -1;
+    }
+    else {
+        fprintf(stderr, "Error: Output start IP pointer is NULL in loadProgram.\n");
+        if (label_map) free(label_map);
+        if (define_map) free(define_map);
+        if (temp_program) free(temp_program);
+        fclose(file);
+        return -12;
+    }
 
     while (fgets(buffer, sizeof(buffer), file) != NULL && temp_line_count < max_size) {
         buffer[strcspn(buffer, "\n")] = 0;
@@ -1008,10 +1021,9 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             char symbol_name[64];
             if (sscanf(start + 6, " %63s", symbol_name) == 1) {
                 if (preproc_stack_ptr + 1 >= MAX_PREPROC_DEPTH) {
-                    fprintf(stderr, "Error: Exceeded maximum preprocessor nesting depth (%d) at line (approx) %d\n", MAX_PREPROC_DEPTH, temp_line_count + final_program_size + 1); // Adjusted line number guess
+                    fprintf(stderr, "Error: Exceeded maximum preprocessor nesting depth (%d) at line (approx) %d\n", MAX_PREPROC_DEPTH, temp_line_count + final_program_size + 1);
                     goto load_error_cleanup;
                 }
-
                 bool parent_is_active = (preproc_stack_ptr >= 0) ? preproc_stack[preproc_stack_ptr].condition_met && preproc_stack[preproc_stack_ptr].parent_active : true;
                 bool defined = false;
                 for (int k = 0; k < define_count; ++k) {
@@ -1021,7 +1033,6 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                     }
                 }
                 bool current_condition_met = defined;
-
                 preproc_stack_ptr++;
                 preproc_stack[preproc_stack_ptr].condition_met = current_condition_met;
                 preproc_stack[preproc_stack_ptr].parent_active = parent_is_active;
@@ -1040,7 +1051,6 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                     fprintf(stderr, "Error: Exceeded maximum preprocessor nesting depth (%d) at line (approx) %d\n", MAX_PREPROC_DEPTH, temp_line_count + final_program_size + 1);
                     goto load_error_cleanup;
                 }
-
                 bool parent_is_active = (preproc_stack_ptr >= 0) ? preproc_stack[preproc_stack_ptr].condition_met && preproc_stack[preproc_stack_ptr].parent_active : true;
                 bool defined = false;
                 for (int k = 0; k < define_count; ++k) {
@@ -1050,7 +1060,6 @@ int loadProgram(const char* filename, char* program[], int max_size) {
                     }
                 }
                 bool current_condition_met = !defined;
-
                 preproc_stack_ptr++;
                 preproc_stack[preproc_stack_ptr].condition_met = current_condition_met;
                 preproc_stack[preproc_stack_ptr].parent_active = parent_is_active;
@@ -1094,7 +1103,6 @@ int loadProgram(const char* filename, char* program[], int max_size) {
             char define_name[64];
             char define_value[64];
             int scan_count = sscanf(start + 7, " %63s %63s", define_name, define_value);
-
             if (scan_count == 2) {
                 if (define_count < MAX_DEFINES) {
                     bool duplicate = false;
@@ -1274,9 +1282,7 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         }
     }
 
-
     final_program_size = 0;
-
     for (int i = 0; i < temp_line_count; i++) {
         char* line = temp_program[i];
         if (!line) continue;
@@ -1358,6 +1364,19 @@ int loadProgram(const char* filename, char* program[], int max_size) {
         }
     }
 
+    bool main_found = false;
+    for (int k = 0; k < label_count; ++k) {
+        if (strcmp(label_map[k].label_name, "_main") == 0) {
+            main_label_line = label_map[k].line_number;
+            main_found = true;
+            break;
+        }
+    }
+
+    if (!main_found) {
+        fprintf(stderr, "Error: Entry point label '_main:' not found in '%s'. Cannot start execution.\n", filename);
+        goto load_error_cleanup;
+    }
 
     for (int i = 0; i < final_program_size; i++) {
         char* instruction = program[i];
@@ -1459,7 +1478,10 @@ load_error_cleanup:
             program[i] = NULL;
         }
     }
-    return -10;
+    if (out_start_ip) {
+        *out_start_ip = -1;
+    }
+    return -11;
 
 load_success:
     if (define_map) free(define_map);
@@ -1470,7 +1492,7 @@ load_success:
         }
         free(temp_program);
     }
-
+    *out_start_ip = main_label_line - 1;
     return final_program_size;
 }
 
@@ -5207,6 +5229,7 @@ int main(void) {
     char** program = NULL;
     char filename[256];
     int program_size = 0;
+    int start_ip = -1;
     VirtualCPU* cpu_ptr = NULL;
     bool sdl_initialized = false;
     bool cpu_initialized = false;
@@ -5265,16 +5288,18 @@ int main(void) {
 #endif
 
     printf("Loading program '%s'...\n", filename);
-    program_size = loadProgram(filename, program, MAX_PROGRAM_SIZE);
+    program_size = loadProgram(filename, program, MAX_PROGRAM_SIZE, &start_ip);
 
     if (program_size < 0) {
-        fprintf(stderr, "Failed to load program (Error code: %d).\n", program_size);
+        fprintf(stderr, "Failed to load program or find entry point.\n");
         if (sdl_initialized) cleanup_sdl(cpu_ptr);
         if (cpu_initialized) cleanup_cpu(cpu_ptr);
         free(cpu_ptr);
+        if (program) free(program);
         return 1;
     }
     printf("Program loaded successfully (%d lines).\n", program_size);
+    printf("Entry point '_main:' found at line %d (IP %d).\n", start_ip + 1, start_ip);
 
     bool debug_mode = false;
     char debug_choice[10];
@@ -5294,6 +5319,7 @@ int main(void) {
     }
 
     printf("Starting execution...\n");
+    cpu_ptr->ip = start_ip;
     execute(cpu_ptr, program, program_size, debug_mode);
 
     printf("Cleaning up...\n");

@@ -295,13 +295,13 @@ static const unsigned char vga_font_8x16[256][16] = {
 
 typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
-    CMP, JNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
-    ROR, STRMOV, RND, JEQ, MOD, ABS, LOOP, LOAD, STORE, TEST,
+    CMP, JMPNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
+    ROR, STRMOV, RND, JMPE, MOD, POW, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
-    INC_MEM, DEC_MEM, JO, JNO, JGE, JLE, LOOPO, LOOPNO, ELI, DLI,
+    INC_MEM, DEC_MEM, JMPO, JMPNO, JMPHE, JMPLE, LOOPO, LOOPNO, ELI, DLI,
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
-    FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG,
+    FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG, FPOW,
     CALLH, CALLL, CALLE, CALLNE, CALLO, CALLNO, CALLHE, CALLLE,
     INVALID_INST
 } InstructionType;
@@ -472,6 +472,7 @@ void rol(VirtualCPU* cpu, int reg1, int count);
 void ror(VirtualCPU* cpu, int reg1, int count);
 void rnd(VirtualCPU* cpu, int reg1);
 void mod_op(VirtualCPU* cpu, int reg1, int reg2);
+void pow_op(VirtualCPU* cpu, int reg1, int reg2);
 void abs_op(VirtualCPU* cpu, int reg1);
 void loop_op(VirtualCPU* cpu, int counter_reg, int target_line);
 void load_op(VirtualCPU* cpu, int dest_reg, int addr_src_reg);
@@ -523,6 +524,7 @@ void fpush(VirtualCPU* cpu, int freg);
 void fpop(VirtualCPU* cpu, int freg);
 void fclr(VirtualCPU* cpu, int freg);
 void fxchg(VirtualCPU* cpu, int freg1, int freg2);
+void fpow_op(VirtualCPU* cpu, int dest_freg, int src_freg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
 
@@ -860,8 +862,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "SHR") == 0) return SHR;
     if (strcasecmp(instruction, "JMP") == 0) return JMP;
     if (strcasecmp(instruction, "CMP") == 0) return CMP;
-    if (strcasecmp(instruction, "JNE") == 0) return JNE;
-    if (strcasecmp(instruction, "JMPNE") == 0) return JNE;
+    if (strcasecmp(instruction, "JMPNE") == 0) return JMPNE;
     if (strcasecmp(instruction, "JMPH") == 0) return JMPH;
     if (strcasecmp(instruction, "JMPL") == 0) return JMPL;
     if (strcasecmp(instruction, "NEG") == 0) return NEG;
@@ -877,8 +878,8 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "ROR") == 0) return ROR;
     if (strcasecmp(instruction, "STRMOV") == 0) return STRMOV;
     if (strcasecmp(instruction, "RND") == 0) return RND;
-    if (strcasecmp(instruction, "JEQ") == 0) return JEQ;
-    if (strcasecmp(instruction, "JMPE") == 0) return JEQ;
+    if (strcasecmp(instruction, "JMPE") == 0) return JMPE;
+    if (strcasecmp(instruction, "POW") == 0) return POW;
     if (strcasecmp(instruction, "MOD") == 0) return MOD;
     if (strcasecmp(instruction, "ABS") == 0) return ABS;
     if (strcasecmp(instruction, "LOOP") == 0) return LOOP;
@@ -907,14 +908,10 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "RVD") == 0) return RVD;
     if (strcasecmp(instruction, "INCMEM") == 0) return INC_MEM;
     if (strcasecmp(instruction, "DECMEM") == 0) return DEC_MEM;
-    if (strcasecmp(instruction, "JO") == 0) return JO;
-    if (strcasecmp(instruction, "JNO") == 0) return JNO;
-    if (strcasecmp(instruction, "JGE") == 0) return JGE;
-    if (strcasecmp(instruction, "JLE") == 0) return JLE;
-    if (strcasecmp(instruction, "JMPO") == 0) return JO;
-    if (strcasecmp(instruction, "JMPNO") == 0) return JNO;
-    if (strcasecmp(instruction, "JMPGE") == 0) return JGE;
-    if (strcasecmp(instruction, "JMPLE") == 0) return JLE;
+    if (strcasecmp(instruction, "JMPO") == 0) return JMPO;
+    if (strcasecmp(instruction, "JMPNO") == 0) return JMPNO;
+    if (strcasecmp(instruction, "JMPHE") == 0) return JMPHE;
+    if (strcasecmp(instruction, "JMPLE") == 0) return JMPLE;
     if (strcasecmp(instruction, "LOOPO") == 0) return LOOPO;
     if (strcasecmp(instruction, "LOOPNO") == 0) return LOOPNO;
     if (strcasecmp(instruction, "ELI") == 0) return ELI;
@@ -938,6 +935,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "FPOP") == 0) return FPOP;
     if (strcasecmp(instruction, "FCLR") == 0) return FCLR;
     if (strcasecmp(instruction, "FXCHG") == 0) return FXCHG;
+    if (strcasecmp(instruction, "FPOW") == 0) return FPOW;
     if (strcasecmp(instruction, "CALLH") == 0) return CALLH;
     if (strcasecmp(instruction, "CALLL") == 0) return CALLL;
     if (strcasecmp(instruction, "CALLE") == 0) return CALLE;
@@ -1394,7 +1392,7 @@ int loadProgram(const char* filename, char* program[], int max_size, int* out_st
         InstructionType inst = parseInstruction(op);
         char* label_operand_str = NULL;
 
-        if (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO || inst == JGE || inst == JLE ||
+        if (inst == JMP || inst == JMPNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JMPE || inst == JMPO || inst == JMPNO || inst == JMPHE || inst == JMPLE ||
             inst == CALLH || inst == CALLL || inst == CALLE || inst == CALLNE || inst == CALLO || inst == CALLNO || inst == CALLHE || inst == CALLLE)
         {
             if (sscanf(instruction, "%*s %s", operand1_str) == 1) {
@@ -1445,7 +1443,7 @@ int loadProgram(const char* filename, char* program[], int max_size, int* out_st
                 goto load_error_cleanup;
             }
         }
-        else if (label_operand_str == NULL && (inst == JMP || inst == JNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JEQ || inst == JO || inst == JNO || inst == JGE || inst == JLE || inst == CALLH || inst == CALLL || inst == CALLE || inst == CALLNE || inst == CALLO || inst == CALLNO || inst == CALLHE || inst == CALLLE || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO)) {
+        else if (label_operand_str == NULL && (inst == JMP || inst == JMPNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JMPE || inst == JMPO || inst == JMPNO || inst == JMPHE || inst == JMPLE || inst == CALLH || inst == CALLL || inst == CALLE || inst == CALLNE || inst == CALLO || inst == CALLNO || inst == CALLHE || inst == CALLLE || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO)) {
             char operand_buf[MAX_LINE_LENGTH];
             if (sscanf(instruction, "%*s %s", operand_buf) != 1 || strlen(operand_buf) == 0) {
                 fprintf(stderr, "Error: Missing or invalid label/line number operand for %s instruction at final line %d: '%s'\n", op, i + 1, instruction);
@@ -2826,6 +2824,87 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             break;
         }
+        case POW: {
+            int dest_reg = -1;
+            int src_reg = -1;
+            int immediate_val = 0;
+            char operand2_str[MAX_LINE_LENGTH];
+
+            if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
+                if (!isValidReg(dest_reg)) {
+                    fprintf(stderr, "Error POW: Invalid destination register R%d at line %d\n", dest_reg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'R' || operand2_str[0] == 'r') && sscanf(operand2_str, "R%d", &src_reg) == 1) {
+                    if (!isValidReg(src_reg)) {
+                        fprintf(stderr, "Error POW: Invalid source register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    pow_op(cpu, dest_reg, src_reg);
+                }
+                else if (sscanf(operand2_str, "%i", &immediate_val) == 1) {
+                    long long base = cpu->registers[dest_reg];
+                    int exponent = immediate_val;
+                    long long result_ll = 1;
+
+                    cpu->flags &= ~FLAG_OVERFLOW;
+
+                    if (exponent < 0) {
+                        fprintf(stderr, "Warning (POW): Negative immediate exponent %d at line %d. Result 0 (unless base +/-1).\n", exponent, cpu->ip + 1);
+                        if (base == 1) result_ll = 1;
+                        else if (base == -1) result_ll = ((exponent % 2) == 0) ? 1 : -1;
+                        else result_ll = 0;
+                    }
+                    else if (exponent == 0) {
+                        result_ll = 1;
+                    }
+                    else if (base == 0) {
+                        result_ll = 0;
+                    }
+                    else {
+                        for (int i = 0; i < exponent; ++i) {
+                            long long abs_base = llabs(base);
+                            long long abs_res = llabs(result_ll);
+                            if (abs_base > 0 && abs_res > 0 && abs_res > LLONG_MAX / abs_base) {
+                                cpu->flags |= FLAG_OVERFLOW;
+                                fprintf(stderr, "Warning (POW): Overflow during immediate power %lld^%d at line %d.\n", base, exponent, cpu->ip + 1);
+                                result_ll = (base > 0 || (exponent % 2 == 0)) ? INT_MAX : INT_MIN;
+                                break;
+                            }
+                            result_ll *= base;
+                        }
+                    }
+
+                    if (result_ll > INT_MAX) {
+                        cpu->registers[dest_reg] = INT_MAX;
+                        if (!(cpu->flags & FLAG_OVERFLOW)) {
+                            fprintf(stderr, "Warning (POW): Result clamped to INT_MAX at line %d.\n", cpu->ip + 1);
+                            cpu->flags |= FLAG_OVERFLOW;
+                        }
+                    }
+                    else if (result_ll < INT_MIN) {
+                        cpu->registers[dest_reg] = INT_MIN;
+                        if (!(cpu->flags & FLAG_OVERFLOW)) {
+                            fprintf(stderr, "Warning (POW): Result clamped to INT_MIN at line %d.\n", cpu->ip + 1);
+                            cpu->flags |= FLAG_OVERFLOW;
+                        }
+                    }
+                    else {
+                        cpu->registers[dest_reg] = (int)result_ll;
+                    }
+                }
+                else {
+                    fprintf(stderr, "Error POW: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                    running = false; break;
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid POW format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
+            break;
+        }
         case ABS:
             if (sscanf(current_instruction_line, "%*s R%d", &operands[0]) == 1) {
                 abs_op(cpu, operands[0]);
@@ -3038,17 +3117,17 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             break;
         }
-        case JNE:
+        case JMPNE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 if ((cpu->flags & FLAG_ZERO) == 0) { jmp(cpu, operands[0]); }
             }
             else { fprintf(stderr, "Error: Invalid JNE format at line %d\n", cpu->ip + 1); running = false; }
             break;
-        case JEQ:
+        case JMPE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 if ((cpu->flags & FLAG_ZERO) != 0) { jmp(cpu, operands[0]); }
             }
-            else { fprintf(stderr, "Error: Invalid JEQ format at line %d\n", cpu->ip + 1); running = false; }
+            else { fprintf(stderr, "Error: Invalid JMPE format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case JMPH:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
@@ -3477,7 +3556,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
         case SAR: {
             int dest_reg = -1;
             int source_reg = -1;
-            int count = 0; // Renamed from immediate_val
+            int count = 0;
             char operand2_str[MAX_LINE_LENGTH];
 
             if (sscanf(current_instruction_line, "%*s R%d, %s", &dest_reg, operand2_str) == 2) {
@@ -3494,7 +3573,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                     count = cpu->registers[source_reg];
                 }
                 else if (sscanf(operand2_str, "%d", &count) == 1) {
-                    // Count is already immediate_val
+
                 }
                 else {
                     fprintf(stderr, "Error SAR: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
@@ -3505,8 +3584,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                     fprintf(stderr, "Warning SAR: Negative shift count %d at line %d. Treating as 0.\n", count, cpu->ip + 1);
                     count = 0;
                 }
-                // SAR allows count >= 32, behavior is defined by >> operator
-                // No clamping needed here, unlike logical shifts
 
                 sar_op(cpu, dest_reg, count);
 
@@ -3544,35 +3621,35 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 running = false;
             }
             break;
-        case JO:
+        case JMPO:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 if ((cpu->flags & FLAG_OVERFLOW) != 0) { jmp(cpu, operands[0]); }
             }
             else {
-                fprintf(stderr, "Error: Invalid JO format at line %d (Expected: JO <line_number/label>)\n", cpu->ip + 1);
+                fprintf(stderr, "Error: Invalid JMPO format at line %d (Expected: JO <line_number/label>)\n", cpu->ip + 1);
                 running = false;
             }
             break;
-        case JNO:
+        case JMPNO:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 if ((cpu->flags & FLAG_OVERFLOW) == 0) { jmp(cpu, operands[0]); }
             }
             else {
-                fprintf(stderr, "Error: Invalid JNO format at line %d (Expected: JNO <line_number/label>)\n", cpu->ip + 1);
+                fprintf(stderr, "Error: Invalid JMPNO format at line %d (Expected: JNO <line_number/label>)\n", cpu->ip + 1);
                 running = false;
             }
             break;
-        case JGE:
+        case JMPHE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 if ((cpu->flags & FLAG_LESS) == 0) { jmp(cpu, operands[0]); }
             }
-            else { fprintf(stderr, "Error: Invalid JGE format at line %d\n", cpu->ip + 1); running = false; }
+            else { fprintf(stderr, "Error: Invalid JMPHE format at line %d\n", cpu->ip + 1); running = false; }
             break;
-        case JLE:
+        case JMPLE:
             if (sscanf(current_instruction_line, "%*s %d", &operands[0]) == 1) {
                 if ((cpu->flags & FLAG_GREATER) == 0) { jmp(cpu, operands[0]); }
             }
-            else { fprintf(stderr, "Error: Invalid JLE format at line %d\n", cpu->ip + 1); running = false; }
+            else { fprintf(stderr, "Error: Invalid JMPLE format at line %d\n", cpu->ip + 1); running = false; }
             break;
         case LOOPO:
             if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
@@ -3863,6 +3940,57 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else { fprintf(stderr, "Error: Invalid FXCHG format\n"); running = false; }
             break;
+        case FPOW: {
+            int dest_freg = -1;
+            int src_freg = -1;
+            double immediate_val = 0.0;
+            char operand2_str[MAX_LINE_LENGTH];
+            char* endptr = NULL;
+
+            if (sscanf(current_instruction_line, "%*s F%d, %s", &dest_freg, operand2_str) == 2) {
+                if (!isValidFReg(dest_freg)) {
+                    fprintf(stderr, "Error FPOW: Invalid destination F register F%d at line %d\n", dest_freg, cpu->ip + 1);
+                    running = false; break;
+                }
+
+                if ((operand2_str[0] == 'F' || operand2_str[0] == 'f') && sscanf(operand2_str, "F%d", &src_freg) == 1) {
+                    if (!isValidFReg(src_freg)) {
+                        fprintf(stderr, "Error FPOW: Invalid source F register %s at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                    fpow_op(cpu, dest_freg, src_freg);
+                }
+                else {
+                    immediate_val = strtod(operand2_str, &endptr);
+                    if (operand2_str != endptr && *endptr == '\0') {
+                        double base = cpu->f_registers[dest_freg];
+                        double exponent = immediate_val;
+                        double result = pow(base, exponent);
+
+                        cpu->flags &= ~FLAG_OVERFLOW;
+                        if (isinf(result) || isnan(result)) {
+                            cpu->flags |= FLAG_OVERFLOW;
+                            if (isnan(result)) {
+                                fprintf(stderr, "Warning FPOW: Immediate result is NaN at line %d.\n", cpu->ip + 1);
+                            }
+                            else {
+                                fprintf(stderr, "Warning FPOW: Immediate result is Infinity at line %d.\n", cpu->ip + 1);
+                            }
+                        }
+                        cpu->f_registers[dest_freg] = result;
+                    }
+                    else {
+                        fprintf(stderr, "Error FPOW: Invalid second operand '%s' at line %d\n", operand2_str, cpu->ip + 1);
+                        running = false; break;
+                    }
+                }
+            }
+            else {
+                fprintf(stderr, "Error: Invalid FPOW format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
+            break;
+        }
 
         case INVALID_INST:
         default:
@@ -5187,6 +5315,59 @@ void fxchg(VirtualCPU* cpu, int freg1, int freg2) {
     double temp = cpu->f_registers[freg1];
     cpu->f_registers[freg1] = cpu->f_registers[freg2];
     cpu->f_registers[freg2] = temp;
+}
+
+void pow_op(VirtualCPU* cpu, int reg1, int reg2) {
+    if (!isValidReg(reg1) || !isValidReg(reg2)) { fprintf(stderr, "Error POW: Invalid register R%d or R%d\n", reg1, reg2); return; }
+    long long base = cpu->registers[reg1];
+    int exponent = cpu->registers[reg2];
+    long long result = 1;
+
+    if (exponent < 0) {
+        fprintf(stderr, "Warning (POW): Negative exponent %d. Result set to 0.\n", exponent);
+        result = 0;
+    }
+    else if (exponent == 0) {
+        result = 1;
+    }
+    else {
+        for (int i = 0; i < exponent; i++) {
+            if (llabs(base) > 0 && llabs(result) > INT_MAX / llabs(base)) {
+                fprintf(stderr, "Warning (POW): Potential integer overflow. Result truncated.\n");
+            }
+            result *= base;
+        }
+    }
+    if (result > INT_MAX) cpu->registers[reg1] = INT_MAX;
+    else if (result < INT_MIN) cpu->registers[reg1] = INT_MIN;
+    else cpu->registers[reg1] = (int)result;
+}
+
+void fpow_op(VirtualCPU* cpu, int dest_freg, int src_freg) {
+    if (!isValidFReg(dest_freg) || !isValidFReg(src_freg)) {
+        fprintf(stderr, "Error FPOW: Invalid F register F%d or F%d at line %d\n", dest_freg, src_freg, cpu->ip + 1);
+        cpu->ip = MEMORY_SIZE + 1;
+        return;
+    }
+
+    double base = cpu->f_registers[dest_freg];
+    double exponent = cpu->f_registers[src_freg];
+    double result = pow(base, exponent);
+
+    if (isinf(result) || isnan(result)) {
+        cpu->flags |= FLAG_OVERFLOW;
+        if (isnan(result)) {
+            fprintf(stderr, "Warning FPOW: Result is NaN (e.g., pow(negative, non-integer)) at line %d. Storing NaN.\n", cpu->ip + 1);
+        }
+        else {
+            fprintf(stderr, "Warning FPOW: Result is Infinity (overflow) at line %d. Storing Infinity.\n", cpu->ip + 1);
+        }
+    }
+    else {
+        cpu->flags &= ~FLAG_OVERFLOW;
+    }
+
+    cpu->f_registers[dest_freg] = result;
 }
 
 void audioCallback(void* userdata, Uint8* stream, int len) {

@@ -1,13 +1,13 @@
-Virtual CPU Documentation (Version 4 - FPU Enhanced)
-This document describes the instruction set, flags, and interrupts for the Virtual CPU implementation (Version 4), including the Floating Point Unit (FPU).
+Virtual CPU Documentation (Version 5)
+This document describes the instruction set, flags, and interrupts for the Virtual CPU implementation (Version 5), including the Floating Point Unit (FPU).
 Overview
-Architecture: 32-bit registers, 1MB addressable memory.
+Architecture: 32-bit registers, 64MB addressable memory.
 Registers:
 General Purpose: 32 registers (R0 - R31), 32-bit integer.
-Floating Point: 8 registers (F0 - F7), 64-bit double-precision floating-point.
+Floating Point: 16 registers (F0 - F15), 64-bit double-precision floating-point.
 IP (Instruction Pointer): Implicitly managed, holds the address of the next instruction to execute (relative to the start of the loaded program, 0-based index). Not directly accessible.
 SP (Stack Pointer): Implicitly managed, points to the top of the stack in memory. The stack grows downwards from the end of memory (MEMORY_SIZE). Shared by integer and FPU push/pop operations. Not directly accessible.
-Memory: MEMORY_SIZE (1MB) of 32-bit integer memory locations. Memory addresses range from 0 to MEMORY_SIZE - 1. Floating-point values occupy multiple slots when stored/loaded.
+Memory: MEMORY_SIZE (64MB) of 32-bit integer memory locations. Memory addresses range from 0 to MEMORY_SIZE - 1. Floating-point values occupy multiple slots when stored/loaded.
 Graphics: SDL-based graphics output with a 16-color palette. Default resolution is 256x192, changeable via interrupt. Includes basic pixel, string, and blitting operations.
 Audio: Simple square wave audio output via SDL. Frequency and volume controllable.
 Input: Keyboard and Mouse input via SDL. Console input via standard input.
@@ -207,7 +207,7 @@ Syntax: JMPL <target_line/label>
 Description: Jumps to the target if the Less Flag (LF) is set (i.e., last CMP/FCMP R1, R2 resulted in R1 < R2).
 Flags Affected: None.
 JMPGE line/label
-Syntax: JMPGE <target_line/label>
+Syntax: JMPHE <target_line/label>
 Description: Jumps to the target if the Less Flag (LF) is not set (i.e., last CMP/FCMP R1, R2 resulted in R1 >= R2).
 Flags Affected: None.
 JMPLE line/label
@@ -308,9 +308,7 @@ Flags Affected: None.
 Notes: This instruction's behavior is highly dependent on the structure of the loop body. For predictable CONTINUE behavior resembling typical while loops, the instructions intended to run before the loop check for the next iteration (e.g., INC Rx, ADD Rx, ...) should be placed immediately before the END instruction. Jumping to the line right before END assumes this instruction is the necessary update/check entry point before the loop back.
 HLT
 Syntax: HLT
-Description: Behavior depends on the interrupt enable flag.
-    - If interrupts are DISABLED (via DLI or initial state): Halts CPU execution indefinitely by stopping the main execution loop.
-    - If interrupts are ENABLED (via ELI): Effectively acts as a NOP for the current cycle, allowing execution to proceed immediately to the next instruction. This simulates an immediate 'wakeup signal' when interrupts are active.
+Description: Halts CPU execution indefinitely in an infinite loop
 Flags Affected: None.
 NOP
 Syntax: NOP
@@ -318,16 +316,8 @@ Description: No operation. Does nothing.
 Flags Affected: None.
 INT imm
 Syntax: INT <interrupt_vector (hex)>
-Description: Triggers a software interrupt specified by the interrupt_vector. See the Interrupts section for details. Requires interrupts to be enabled via ELI.
+Description: Triggers a software interrupt specified by the interrupt_vector. See the Interrupts section for details.
 Flags Affected: Depends on the interrupt handler.
-ELI
-Syntax: ELI
-Description: Sets the internal interrupt enable flag, allowing subsequent INT instructions to execute their corresponding interrupt handlers.
-Flags Affected: None.
-DLI
-Syntax: DLI
-Description: Clears the internal interrupt enable flag. Subsequent INT instructions will cause an error or be ignored (implementation-defined halt).
-Flags Affected: None.
 --- Stack Instructions ---
 PUSH Rx
 Syntax: PUSH <Rsrc>
@@ -593,7 +583,7 @@ Input: None. Output: R0 = MEMORY_SIZE.
 Description: Triggers a host debugger breakpoint if the emulator is run under a debugger (__debugbreak() / __builtin_trap() / raise(SIGTRAP)).
 Input: None. Output: Debugger break (if attached).
 0x44 (INT_DUMP_REGISTERS)
-Description: Prints the current state of all general-purpose registers (R0-R31), FPU registers (F0-F7), IP, SP, and Flags to the console.
+Description: Prints the current state of all general-purpose registers (R0-R31), FPU registers (F0-F15), IP, SP, and Flags to the console.
 Input: None. Output: Register dump printed to standard output.
 0x45 (INT_DUMP_MEMORY)
 Description: Prints a hexadecimal dump of a portion of CPU memory to the console.

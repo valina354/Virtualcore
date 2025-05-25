@@ -303,6 +303,7 @@ typedef enum {
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
     FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG, FPOW,
     CALLH, CALLL, CALLE, CALLNE, CALLO, CALLNO, CALLHE, CALLLE,
+    IF, END, WHILE, BREAK, CONTINUE,
     INVALID_INST
 } InstructionType;
 
@@ -553,6 +554,187 @@ char* strdup_portable(const char* s) {
     memcpy(new_s, s, len);
     return new_s;
 #endif
+}
+
+int parse_condition_operands(const char* line_ptr, char* reg1_str, char* op_str, char* val_str, int max_val_len, int line_num) {
+    reg1_str[0] = '\0'; op_str[0] = '\0'; val_str[0] = '\0';
+
+    while (*line_ptr && (isspace((unsigned char)*line_ptr) || *line_ptr == ',')) line_ptr++;
+    if (!*line_ptr) { fprintf(stderr, "Error parsing condition: Missing first operand at line %d\n", line_num); return -1; }
+
+    char* reg1_start = line_ptr;
+    char* reg1_end = line_ptr;
+    while (*reg1_end && !isspace((unsigned char)*reg1_end) && *reg1_end != ',') reg1_end++;
+    if (reg1_end == reg1_start) { fprintf(stderr, "Error parsing condition: Cannot parse first operand at line %d\n", line_num); return -1; }
+    size_t reg1_len = reg1_end - reg1_start;
+    if (reg1_len >= 64) { fprintf(stderr, "Error parsing condition: First operand too long at line %d\n", line_num); return -1; }
+    strncpy(reg1_str, reg1_start, reg1_len);
+    reg1_str[reg1_len] = '\0';
+    line_ptr = reg1_end;
+
+    while (*line_ptr && (isspace((unsigned char)*line_ptr) || *line_ptr == ',')) line_ptr++;
+    if (!*line_ptr) { fprintf(stderr, "Error parsing condition: Missing operator at line %d\n", line_num); return -1; }
+
+    char* op_start = line_ptr;
+    char* op_end = line_ptr;
+    if (strncmp(op_end, "==", 2) == 0) op_end += 2;
+    else if (strncmp(op_end, "!=", 2) == 0) op_end += 2;
+    else if (strncmp(op_end, ">=", 2) == 0) op_end += 2;
+    else if (strncmp(op_end, "<=", 2) == 0) op_end += 2;
+    else if (strncmp(op_end, ">", 1) == 0) op_end += 1;
+    else if (strncmp(op_end, "<", 1) == 0) op_end += 1;
+    else { fprintf(stderr, "Error parsing condition: Invalid operator at line %d\n", line_num); return -1; }
+    size_t op_len = op_end - op_start;
+    if (op_len >= 10) { fprintf(stderr, "Error parsing condition: Operator too long at line %d\n", line_num); return -1; }
+    strncpy(op_str, op_start, op_len);
+    op_str[op_len] = '\0';
+    line_ptr = op_end;
+
+    while (*line_ptr && (isspace((unsigned char)*line_ptr) || *line_ptr == ',')) line_ptr++;
+    if (!*line_ptr) { fprintf(stderr, "Error parsing condition: Missing second operand at line %d\n", line_num); return -1; }
+
+    char* val_start = line_ptr;
+    strncpy(val_str, val_start, max_val_len - 1);
+    val_str[max_val_len - 1] = '\0';
+    char* val_end = val_str + strlen(val_str) - 1;
+    while (val_end >= val_str && isspace((unsigned char)*val_end)) val_end--;
+    *(val_end + 1) = '\0';
+
+    return 0;
+}
+
+int evaluate_condition(VirtualCPU* cpu, const char* reg_str, const char* op_str, const char* val_str, int line_num) {
+    int reg_idx = -1;
+    if (sscanf(reg_str, "R%d", &reg_idx) != 1 || !isValidReg(reg_idx)) {
+        fprintf(stderr, "Error evaluating condition: Invalid register '%s' at line %d\n", reg_str, line_num);
+        return -1;
+    }
+    int value1 = cpu->registers[reg_idx];
+
+    int value2;
+    int reg2_idx = -1;
+    if (sscanf(val_str, "R%d", &reg2_idx) == 1 && isValidReg(reg2_idx)) {
+        value2 = cpu->registers[reg2_idx];
+    }
+    else {
+        char* endptr;
+        long parsed_val = strtol(val_str, &endptr, 0);
+        if (val_str == endptr || *endptr != '\0') {
+            double float_val;
+            if (sscanf(val_str, "%lf", &float_val) == 1 && *endptr == '\0') {
+                fprintf(stderr, "Error evaluating condition: Floating point immediate '%s' is not supported for integer comparisons at line %d\n", val_str, line_num);
+                return -1;
+            }
+
+            fprintf(stderr, "Error evaluating condition: Invalid second operand '%s' (must be register or integer immediate) at line %d\n", val_str, line_num);
+            return -1;
+        }
+        value2 = (int)parsed_val;
+        if (parsed_val > INT_MAX || parsed_val < INT_MIN) {
+        }
+    }
+
+    if (strcmp(op_str, "==") == 0) return (value1 == value2);
+    if (strcmp(op_str, "!=") == 0) return (value1 != value2);
+    if (strcmp(op_str, ">") == 0)  return (value1 > value2);
+    if (strcmp(op_str, "<") == 0)  return (value1 < value2);
+    if (strcmp(op_str, ">=") == 0) return (value1 >= value2);
+    if (strcmp(op_str, "<=") == 0) return (value1 <= value2);
+
+    fprintf(stderr, "Error evaluating condition: Unknown operator '%s' at line %d\n", op_str, line_num);
+    return -1;
+}
+
+int find_matching_end(char* program[], int program_size, int start_ip) {
+    InstructionType start_type = INVALID_INST;
+    if (start_ip >= 0 && start_ip < program_size && program[start_ip]) {
+        char op_str[MAX_LINE_LENGTH];
+        char* scan_ptr = program[start_ip];
+        while (*scan_ptr && isspace((unsigned char)*scan_ptr)) scan_ptr++;
+        int scan_op_idx = 0;
+        while (*scan_ptr && !isspace((unsigned char)*scan_ptr) && *scan_ptr != ',' && scan_op_idx < sizeof(op_str) - 1) {
+            op_str[scan_op_idx++] = toupper((unsigned char)*scan_ptr++);
+        }
+        op_str[scan_op_idx] = '\0';
+        start_type = parseInstruction(op_str);
+        if (start_type != IF && start_type != WHILE) {
+            fprintf(stderr, "Error (Internal): find_matching_end called on IP %d with non-block start instruction.\n", start_ip + 1);
+            return -1;
+        }
+    }
+    else {
+        fprintf(stderr, "Error (Internal): find_matching_end called with invalid start_ip %d.\n", start_ip);
+        return -1;
+    }
+
+
+    int nested_level = 0;
+    int scan_ip = start_ip + 1;
+
+    while (scan_ip < program_size) {
+        if (!program[scan_ip]) { scan_ip++; continue; }
+
+        char scan_op_str_buf[MAX_LINE_LENGTH];
+        char* scan_ptr = program[scan_ip];
+        while (*scan_ptr && isspace((unsigned char)*scan_ptr)) scan_ptr++;
+        int scan_op_idx = 0;
+        while (*scan_ptr && !isspace((unsigned char)*scan_ptr) && *scan_ptr != ',' && scan_op_idx < sizeof(scan_op_str_buf) - 1) {
+            scan_op_str_buf[scan_op_idx++] = toupper((unsigned char)*scan_ptr++);
+        }
+        scan_op_str_buf[scan_op_idx] = '\0';
+
+        InstructionType scanned_inst = parseInstruction(scan_op_str_buf);
+
+        if (scanned_inst == IF || scanned_inst == WHILE) {
+            nested_level++;
+        }
+        else if (scanned_inst == END) {
+            if (nested_level > 0) {
+                nested_level--;
+            }
+            else {
+                return scan_ip;
+            }
+        }
+        scan_ip++;
+    }
+    return -1;
+}
+
+int find_enclosing_while_ip(char* program[], int program_size, int current_ip) {
+    int nested_depth = 0;
+    int scan_ip = current_ip - 1;
+
+    while (scan_ip >= 0) {
+        if (!program[scan_ip]) { scan_ip--; continue; }
+
+        char scan_op_str_buf[MAX_LINE_LENGTH];
+        char* scan_ptr = program[scan_ip];
+        while (*scan_ptr && isspace((unsigned char)*scan_ptr)) scan_ptr++;
+        int scan_op_idx = 0;
+        while (*scan_ptr && !isspace((unsigned char)*scan_ptr) && *scan_ptr != ',' && scan_op_idx < sizeof(scan_op_str_buf) - 1) {
+            scan_op_str_buf[scan_op_idx++] = toupper((unsigned char)*scan_ptr++);
+        }
+        scan_op_str_buf[scan_op_idx] = '\0';
+
+        InstructionType scanned_inst = parseInstruction(scan_op_str_buf);
+
+        if (scanned_inst == END) {
+            nested_depth++;
+        }
+        else if (scanned_inst == IF || scanned_inst == WHILE) {
+            if (nested_depth > 0) {
+                nested_depth--;
+            }
+            else {
+                if (scanned_inst == WHILE) {
+                    return scan_ip;
+                }
+            }
+        }
+        scan_ip--;
+    }
+    return -1;
 }
 
 bool initialize_disk_image(VirtualCPU* cpu) {
@@ -944,6 +1126,11 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "CALLNO") == 0) return CALLNO;
     if (strcasecmp(instruction, "CALLHE") == 0) return CALLHE;
     if (strcasecmp(instruction, "CALLLE") == 0) return CALLLE;
+    if (strcasecmp(instruction, "IF") == 0) return IF;
+    if (strcasecmp(instruction, "END") == 0) return END;
+    if (strcasecmp(instruction, "WHILE") == 0) return WHILE;
+    if (strcasecmp(instruction, "BREAK") == 0) return BREAK;
+    if (strcasecmp(instruction, "CONTINUE") == 0) return CONTINUE;
     return INVALID_INST;
 }
 
@@ -2557,8 +2744,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             continue;
         }
 
-        InstructionType inst = parseInstruction(op_str);
-
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
@@ -2568,6 +2753,20 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
         }
         if (!running) break;
 
+        op_str[MAX_LINE_LENGTH];
+        char* line_ptr = current_instruction_line;
+
+        while (*line_ptr && isspace((unsigned char)*line_ptr)) {
+            line_ptr++;
+        }
+
+        int i = 0;
+        while (*line_ptr && !isspace((unsigned char)*line_ptr) && *line_ptr != ',' && i < sizeof(op_str) - 1) {
+            op_str[i++] = *line_ptr++;
+        }
+        op_str[i] = '\0';
+
+        InstructionType inst = parseInstruction(op_str);
 
         int current_ip = cpu->ip;
 
@@ -3987,6 +4186,229 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             }
             else {
                 fprintf(stderr, "Error: Invalid FPOW format structure at line %d: '%s'\n", cpu->ip + 1, current_instruction_line);
+                running = false;
+            }
+            break;
+        }
+        case IF: {
+            char reg1_str[64], operator_str[10], val_str[MAX_LINE_LENGTH];
+
+            if (parse_condition_operands(line_ptr, reg1_str, operator_str, val_str, sizeof(val_str), cpu->ip + 1) == -1) {
+                running = false;
+                break;
+            }
+
+            int condition_is_true = evaluate_condition(cpu, reg1_str, operator_str, val_str, cpu->ip + 1);
+
+            if (condition_is_true == -1) {
+                running = false;
+                break;
+            }
+
+            if (condition_is_true == 0) {
+                int nested_level = 0;
+                int scan_ip = cpu->ip + 1;
+                bool found_end = false;
+
+                while (scan_ip < program_size) {
+                    char scan_op_str_buf[MAX_LINE_LENGTH];
+                    char* scan_line = program[scan_ip];
+                    if (!scan_line) { scan_ip++; continue; }
+
+                    char* scan_ptr = scan_line;
+                    while (*scan_ptr && isspace((unsigned char)*scan_ptr)) scan_ptr++;
+                    int scan_op_idx = 0;
+                    while (*scan_ptr && !isspace((unsigned char)*scan_ptr) && *scan_ptr != ',' && scan_op_idx < sizeof(scan_op_str_buf) - 1) {
+                        scan_op_str_buf[scan_op_idx++] = toupper((unsigned char)*scan_ptr++);
+                    }
+                    scan_op_str_buf[scan_op_idx] = '\0';
+
+                    InstructionType scanned_inst = parseInstruction(scan_op_str_buf);
+
+                    if (scanned_inst == IF || scanned_inst == WHILE) {
+                        nested_level++;
+                    }
+                    else if (scanned_inst == END) {
+                        if (nested_level > 0) {
+                            nested_level--;
+                        }
+                        else {
+                            cpu->ip = scan_ip;
+                            found_end = true;
+                            break;
+                        }
+                    }
+                    scan_ip++;
+                }
+
+                if (!found_end) {
+                    fprintf(stderr, "Error: Matching END not found for IF starting at line %d. Execution halted.\n", current_ip + 1);
+                    running = false;
+                }
+            }
+            break;
+        }
+
+        case WHILE: {
+            char reg1_str[64], operator_str[10], val_str[MAX_LINE_LENGTH];
+
+            if (parse_condition_operands(line_ptr, reg1_str, operator_str, val_str, sizeof(val_str), cpu->ip + 1) == -1) {
+                running = false;
+                break;
+            }
+
+            int condition_is_true = evaluate_condition(cpu, reg1_str, operator_str, val_str, cpu->ip + 1);
+
+            if (condition_is_true == -1) {
+                running = false;
+                break;
+            }
+
+            if (condition_is_true == 0) {
+                int nested_level = 0;
+                int scan_ip = cpu->ip + 1;
+                bool found_end = false;
+
+                while (scan_ip < program_size) {
+                    char scan_op_str_buf[MAX_LINE_LENGTH];
+                    char* scan_line = program[scan_ip];
+                    if (!scan_line) { scan_ip++; continue; }
+
+                    char* scan_ptr = scan_line;
+                    while (*scan_ptr && isspace((unsigned char)*scan_ptr)) scan_ptr++;
+                    int scan_op_idx = 0;
+                    while (*scan_ptr && !isspace((unsigned char)*scan_ptr) && *scan_ptr != ',' && scan_op_idx < sizeof(scan_op_str_buf) - 1) {
+                        scan_op_str_buf[scan_op_idx++] = toupper((unsigned char)*scan_ptr++);
+                    }
+                    scan_op_str_buf[scan_op_idx] = '\0';
+
+                    InstructionType scanned_inst = parseInstruction(scan_op_str_buf);
+
+                    if (scanned_inst == IF || scanned_inst == WHILE) {
+                        nested_level++;
+                    }
+                    else if (scanned_inst == END) {
+                        if (nested_level > 0) {
+                            nested_level--;
+                        }
+                        else {
+                            cpu->ip = scan_ip;
+                            found_end = true;
+                            break;
+                        }
+                    }
+                    scan_ip++;
+                }
+
+                if (!found_end) {
+                    fprintf(stderr, "Error: Matching END not found for WHILE starting at line %d. Execution halted.\n", current_ip + 1);
+                    running = false;
+                }
+            }
+            break;
+        }
+
+        case BREAK: {
+            int while_ip = find_enclosing_while_ip(program, program_size, cpu->ip);
+            if (while_ip != -1) {
+                int while_end_ip = find_matching_end(program, program_size, while_ip);
+                if (while_end_ip != -1) {
+                    cpu->ip = while_end_ip + 1;
+                }
+                else {
+                    fprintf(stderr, "Error (Internal): WHILE at line %d has no matching END.\n", while_ip + 1);
+                    running = false;
+                }
+            }
+            else {
+                fprintf(stderr, "Error: BREAK at line %d is not inside a WHILE block. Execution halted.\n", cpu->ip + 1);
+                running = false;
+            }
+            break;
+        }
+
+        case CONTINUE: {
+            int while_ip = find_enclosing_while_ip(program, program_size, cpu->ip);
+            if (while_ip != -1) {
+                int while_end_ip = find_matching_end(program, program_size, while_ip);
+                if (while_end_ip != -1) {
+                    cpu->ip = while_end_ip;
+                }
+                else {
+                    fprintf(stderr, "Error (Internal): WHILE at line %d has no matching END.\n", while_ip + 1);
+                    running = false;
+                }
+            }
+            else {
+                fprintf(stderr, "Error: CONTINUE at line %d is not inside a WHILE block. Execution halted.\n", cpu->ip + 1);
+                running = false;
+            }
+            break;
+        }
+
+        case END: {
+            int nested_level = 0;
+            int scan_ip = cpu->ip - 1;
+            bool found_match = false;
+            int matching_block_start_ip = -1;
+
+            while (scan_ip >= 0) {
+                char scan_op_str_buf[MAX_LINE_LENGTH];
+                char* scan_line = program[scan_ip];
+                if (!scan_line) { scan_ip--; continue; }
+
+                char* scan_ptr = scan_line;
+                while (*scan_ptr && isspace((unsigned char)*scan_ptr)) scan_ptr++;
+                int scan_op_idx = 0;
+                while (*scan_ptr && !isspace((unsigned char)*scan_ptr) && *scan_ptr != ',' && scan_op_idx < sizeof(scan_op_str_buf) - 1) {
+                    scan_op_str_buf[scan_op_idx++] = toupper((unsigned char)*scan_ptr++);
+                }
+                scan_op_str_buf[scan_op_idx] = '\0';
+
+                InstructionType scanned_inst = parseInstruction(scan_op_str_buf);
+
+                if (scanned_inst == END) {
+                    nested_level++;
+                }
+                else if (scanned_inst == IF || scanned_inst == WHILE) {
+                    if (nested_level > 0) {
+                        nested_level--;
+                    }
+                    else {
+                        found_match = true;
+                        matching_block_start_ip = scan_ip;
+
+                        if (scanned_inst == WHILE) {
+                            char while_reg1_str[64], while_op_str[10], while_val_str[MAX_LINE_LENGTH];
+                            char* while_line_ptr = program[scan_ip];
+
+                            while (*while_line_ptr && isspace((unsigned char)*while_line_ptr)) while_line_ptr++;
+                            while (*while_line_ptr && !isspace((unsigned char)*while_line_ptr) && *while_line_ptr != ',') while_line_ptr++;
+
+                            if (parse_condition_operands(while_line_ptr, while_reg1_str, while_op_str, while_val_str, sizeof(while_val_str), scan_ip + 1) == -1) {
+                                running = false;
+                                break;
+                            }
+
+                            int condition_is_true = evaluate_condition(cpu, while_reg1_str, while_op_str, while_val_str, scan_ip + 1);
+
+                            if (condition_is_true == -1) {
+                                running = false;
+                                break;
+                            }
+
+                            if (condition_is_true == 1) {
+                                cpu->ip = scan_ip;
+                            }
+                        }
+                        break;
+                    }
+                }
+                scan_ip--;
+            }
+
+            if (!found_match && running) {
+                fprintf(stderr, "Error: Stray END found at line %d. No matching WHILE or IF block. Execution halted.\n", current_ip + 1);
                 running = false;
             }
             break;

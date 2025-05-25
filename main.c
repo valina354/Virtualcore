@@ -281,10 +281,10 @@ static const unsigned char vga_font_8x16[256][16] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}  // 255 Non-breaking space (same as space)
 };
 
-#define CPU_VERSION 4
-#define MEMORY_SIZE (1024 * 1024)
+#define CPU_VERSION 5
+#define MEMORY_SIZE (65536 * 1024)
 #define NUM_REGISTERS 32
-#define NUM_F_REGISTERS 8
+#define NUM_F_REGISTERS 16
 #define MAX_PROGRAM_SIZE 65536
 #define MAX_LINE_LENGTH 512
 #define DEFAULT_SCREEN_WIDTH 256

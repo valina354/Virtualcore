@@ -297,9 +297,9 @@ typedef enum {
     MOV, ADD, SUB, MUL, DIV, INTR, NOP, HLT, NOT, AND, OR, XOR, SHL, SHR, JMP,
     CMP, JMPNE, JMPH, JMPL, NEG, INC, DEC, XCHG, CLR, PUSH, POP, CALL, RET, ROL,
     ROR, STRMOV, RND, JMPE, MOD, POW, ABS, LOOP, LOAD, STORE, TEST,
-    LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
+    LEA, PUSHF, POPF, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
-    INC_MEM, DEC_MEM, JMPO, JMPNO, JMPHE, JMPLE, LOOPO, LOOPNO,
+    INC_MEM, DEC_MEM, JMPO, JMPNO, JMPHE, JMPLE,
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
     FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG, FPOW,
     CALLH, CALLL, CALLE, CALLNE, CALLO, CALLNO, CALLHE, CALLLE,
@@ -1069,8 +1069,6 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "LEA") == 0) return LEA;
     if (strcasecmp(instruction, "PUSHF") == 0) return PUSHF;
     if (strcasecmp(instruction, "POPF") == 0) return POPF;
-    if (strcasecmp(instruction, "LOOPE") == 0) return LOOPE;
-    if (strcasecmp(instruction, "LOOPNE") == 0) return LOOPNE;
     if (strcasecmp(instruction, "SETF") == 0) return SETF;
     if (strcasecmp(instruction, "CLRF") == 0) return CLRF;
     if (strcasecmp(instruction, "BT") == 0) return BT;
@@ -1092,8 +1090,6 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "JMPNO") == 0) return JMPNO;
     if (strcasecmp(instruction, "JMPHE") == 0) return JMPHE;
     if (strcasecmp(instruction, "JMPLE") == 0) return JMPLE;
-    if (strcasecmp(instruction, "LOOPO") == 0) return LOOPO;
-    if (strcasecmp(instruction, "LOOPNO") == 0) return LOOPNO;
     if (strcasecmp(instruction, "FMOV") == 0) return FMOV;
     if (strcasecmp(instruction, "FADD") == 0) return FADD;
     if (strcasecmp(instruction, "FSUB") == 0) return FSUB;
@@ -1582,7 +1578,7 @@ int loadProgram(const char* filename, char* program[], int max_size, int* out_st
                 label_operand_str = operand1_str;
             }
         }
-        else if (inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO) {
+        else if (inst == LOOP) {
             char reg_operand_str[64];
             if (sscanf(instruction, "%*s %63[^,], %s", reg_operand_str, operand2_str) == 2) {
                 label_operand_str = operand2_str;
@@ -1605,7 +1601,7 @@ int loadProgram(const char* filename, char* program[], int max_size, int* out_st
 
             if (target_line != -1) {
                 char new_instruction[MAX_LINE_LENGTH];
-                if (inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO) {
+                if (inst == LOOP) {
                     char reg_operand_str[64];
                     sscanf(instruction, "%*s %63[^,]", reg_operand_str);
                     snprintf(new_instruction, sizeof(new_instruction), "%s %s, %d", op, reg_operand_str, target_line);
@@ -1626,7 +1622,7 @@ int loadProgram(const char* filename, char* program[], int max_size, int* out_st
                 goto load_error_cleanup;
             }
         }
-        else if (label_operand_str == NULL && (inst == JMP || inst == JMPNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JMPE || inst == JMPO || inst == JMPNO || inst == JMPHE || inst == JMPLE || inst == CALLH || inst == CALLL || inst == CALLE || inst == CALLNE || inst == CALLO || inst == CALLNO || inst == CALLHE || inst == CALLLE || inst == LOOP || inst == LOOPE || inst == LOOPNE || inst == LOOPO || inst == LOOPNO)) {
+        else if (label_operand_str == NULL && (inst == JMP || inst == JMPNE || inst == JMPH || inst == JMPL || inst == CALL || inst == JMPE || inst == JMPO || inst == JMPNO || inst == JMPHE || inst == JMPLE || inst == CALLH || inst == CALLL || inst == CALLE || inst == CALLNE || inst == CALLO || inst == CALLNO || inst == CALLHE || inst == CALLLE || inst == LOOP)) {
             char operand_buf[MAX_LINE_LENGTH];
             if (sscanf(instruction, "%*s %s", operand_buf) != 1 || strlen(operand_buf) == 0) {
                 fprintf(stderr, "Error: Missing or invalid label/line number operand for %s instruction at final line %d: '%s'\n", op, i + 1, instruction);
@@ -3598,24 +3594,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
         case POPF:
             popf_op(cpu);
             break;
-        case LOOPE:
-            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
-                loope_op(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid LOOPE/LOOPZ format at line %d (Expected: OP Rx, <line_number>)\n", cpu->ip + 1);
-                running = false;
-            }
-            break;
-        case LOOPNE:
-            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
-                loopne_op(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid LOOPNE/LOOPNZ format at line %d (Expected: OP Rx, <line_number>)\n", cpu->ip + 1);
-                running = false;
-            }
-            break;
         case SETF:
             if (sscanf(current_instruction_line, "%*s %x", &operands[0]) == 1) {
                 setf_op(cpu, operands[0]);
@@ -3839,24 +3817,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 if ((cpu->flags & FLAG_GREATER) == 0) { jmp(cpu, operands[0]); }
             }
             else { fprintf(stderr, "Error: Invalid JMPLE format at line %d\n", cpu->ip + 1); running = false; }
-            break;
-        case LOOPO:
-            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
-                loopo_op(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid LOOPO format at line %d (Expected: LOOPO Rx, <line_number/label>)\n", cpu->ip + 1);
-                running = false;
-            }
-            break;
-        case LOOPNO:
-            if (sscanf(current_instruction_line, "%*s R%d, %d", &operands[0], &operands[1]) == 2) {
-                loopno_op(cpu, operands[0], operands[1]);
-            }
-            else {
-                fprintf(stderr, "Error: Invalid LOOPNO format at line %d (Expected: LOOPNO Rx, <line_number/label>)\n", cpu->ip + 1);
-                running = false;
-            }
             break;
         case FMOV: {
             int dest_freg = -1;
@@ -4529,32 +4489,6 @@ void loop_op(VirtualCPU* cpu, int counter_reg, int target_line) {
     cpu->registers[counter_reg]--;
 
     if (cpu->registers[counter_reg] != 0) {
-        jmp(cpu, target_line);
-    }
-}
-
-void loope_op(VirtualCPU* cpu, int counter_reg, int target_line) {
-    if (!isValidReg(counter_reg)) {
-        fprintf(stderr, "Error LOOPE: Invalid counter register R%d at line %d\n", counter_reg, cpu->ip + 1);
-        return;
-    }
-
-    cpu->registers[counter_reg]--;
-
-    if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_ZERO) != 0) {
-        jmp(cpu, target_line);
-    }
-}
-
-void loopne_op(VirtualCPU* cpu, int counter_reg, int target_line) {
-    if (!isValidReg(counter_reg)) {
-        fprintf(stderr, "Error LOOPNE: Invalid counter register R%d at line %d\n", counter_reg, cpu->ip + 1);
-        return;
-    }
-
-    cpu->registers[counter_reg]--;
-
-    if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_ZERO) == 0) {
         jmp(cpu, target_line);
     }
 }

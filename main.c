@@ -299,7 +299,7 @@ typedef enum {
     ROR, STRMOV, RND, JMPE, MOD, POW, ABS, LOOP, LOAD, STORE, TEST,
     LEA, PUSHF, POPF, LOOPE, LOOPNE, SETF, CLRF, BT, BSET, BCLR, BTOG,
     STRCMP, STRLEN, STRCPY, MEMCPY, MEMSET, CPUID, BSWAP, SAR, RVD,
-    INC_MEM, DEC_MEM, JMPO, JMPNO, JMPHE, JMPLE, LOOPO, LOOPNO, ELI, DLI,
+    INC_MEM, DEC_MEM, JMPO, JMPNO, JMPHE, JMPLE, LOOPO, LOOPNO,
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
     FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG, FPOW,
     CALLH, CALLL, CALLE, CALLNE, CALLO, CALLNO, CALLHE, CALLLE,
@@ -424,7 +424,6 @@ typedef struct {
     int screen_on;
 
     bool shutdown_requested;
-    bool interrupts_enabled;
 
     FILE* disk_image_fp;
     long long disk_image_size;
@@ -822,7 +821,6 @@ bool init_cpu(VirtualCPU* cpu) {
     cpu->flags = 0;
     cpu->sp = MEMORY_SIZE;
     cpu->shutdown_requested = false;
-    cpu->interrupts_enabled = false;
 
     cpu->audioDevice = 0;
     cpu->frequency = 440.0;
@@ -1096,8 +1094,6 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "JMPLE") == 0) return JMPLE;
     if (strcasecmp(instruction, "LOOPO") == 0) return LOOPO;
     if (strcasecmp(instruction, "LOOPNO") == 0) return LOOPNO;
-    if (strcasecmp(instruction, "ELI") == 0) return ELI;
-    if (strcasecmp(instruction, "DLI") == 0) return DLI;
     if (strcasecmp(instruction, "FMOV") == 0) return FMOV;
     if (strcasecmp(instruction, "FADD") == 0) return FADD;
     if (strcasecmp(instruction, "FSUB") == 0) return FSUB;
@@ -3121,13 +3117,7 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
             break;
         case INTR:
             if (sscanf(current_instruction_line, "%*s %x", &operands[0]) == 1) {
-                if (cpu->interrupts_enabled) {
-                    interrupt(cpu, operands[0]);
-                }
-                else {
-                    fprintf(stderr, "Interrupt %x called while interrupts disabled at line %d, halting.\n", operands[0], cpu->ip + 1);
-                    running = false;
-                }
+                interrupt(cpu, operands[0]);
             }
             else { fprintf(stderr, "Error: Invalid INT format at line %d\n", cpu->ip + 1); running = false; }
             break;
@@ -3868,12 +3858,6 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 running = false;
             }
             break;
-        case ELI:
-            eli_op(cpu);
-            break;
-        case DLI:
-            dli_op(cpu);
-            break;
         case FMOV: {
             int dest_freg = -1;
             int src_freg = -1;
@@ -4580,10 +4564,8 @@ void nop(VirtualCPU* cpu) {
 }
 
 void hlt(VirtualCPU* cpu, bool* running_flag) {
-    if (cpu->interrupts_enabled) {
-    }
-    else {
-        *running_flag = false;
+    while (1) {
+
     }
 }
 
@@ -5373,14 +5355,6 @@ void loopno_op(VirtualCPU* cpu, int counter_reg, int target_line) {
     if (cpu->registers[counter_reg] != 0 && (cpu->flags & FLAG_OVERFLOW) == 0) {
         jmp(cpu, target_line);
     }
-}
-
-void eli_op(VirtualCPU* cpu) {
-    cpu->interrupts_enabled = true;
-}
-
-void dli_op(VirtualCPU* cpu) {
-    cpu->interrupts_enabled = false;
 }
 
 void fmov_reg(VirtualCPU* cpu, int dest_freg, int src_freg) {

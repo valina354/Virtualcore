@@ -282,6 +282,30 @@ LOOPNO Rx, line/label
 Syntax: LOOPNO <Rcounter>, <target_line/label>
 Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag (OF) is clear, jumps to the target.
 Flags Affected: None directly by LOOPNO.
+--- Control Flow Instructions (continued) ---
+IF <Operand1> <ComparisonOperator> <Operand2>
+Syntax: IF <Operand1>, <ComparisonOperator>, <Operand2>
+Description: Starts a conditional block. <Operand1> is an integer register (Rx). <Operand2> can be an integer register (Ry) or an immediate integer value. <ComparisonOperator> is one of ==, !=, >, <, >=, <=. The instruction evaluates the comparison. If the condition is true, execution proceeds to the instruction immediately following the IF. If the condition is false, execution skips forward to the instruction immediately following the corresponding END instruction.
+Flags Affected: None directly by the IF instruction itself. The comparison is evaluated using the values of the operands.
+WHILE <Operand1> <ComparisonOperator> <Operand2>
+Syntax: WHILE <Operand1>, <ComparisonOperator>, <Operand2>
+Description: Starts a loop block. <Operand1>, <Operand2>, and <ComparisonOperator> are the same as for the IF instruction. The instruction evaluates the comparison. If the condition is true, execution proceeds to the instruction immediately following the WHILE (the beginning of the loop body). If the condition is false, execution skips forward to the instruction immediately following the corresponding END instruction, exiting the loop. The END instruction matching a WHILE is responsible for jumping back to the start of the loop body.
+Flags Affected: None directly by the WHILE instruction itself. The comparison is evaluated using the values of the operands.
+END
+Syntax: END
+Description: Marks the end of an IF or WHILE block. Every IF or WHILE must have a corresponding END. Blocks can be nested.
+If this END terminates an IF block, execution simply proceeds to the next instruction after the END (unless the IF condition was false, in which case the IF instruction itself would have already jumped execution to this END).
+If this END terminates a WHILE block, execution unconditionally jumps back to the instruction immediately following the corresponding WHILE instruction (the beginning of the loop body). The WHILE instruction is re-evaluated on the next cycle.
+Flags Affected: None.
+BREAK
+Syntax: BREAK
+Description: Must be used within a WHILE...END block. Unconditionally jumps execution forward to the instruction immediately following the END instruction of the innermost enclosing WHILE loop. This effectively exits the loop prematurely. Cannot be used inside an IF block unless that IF is itself inside a WHILE block.
+Flags Affected: None.
+CONTINUE
+Syntax: CONTINUE
+Description: Must be used within a WHILE...END block. Unconditionally jumps execution forward to the instruction immediately preceding the END instruction of the innermost enclosing WHILE loop. This skips the remaining instructions in the current iteration's loop body and proceeds to the loop's implicit "end-of-iteration" logic (which, in this VM structure, is typically where you'd place counter increments or updates immediately before the END).
+Flags Affected: None.
+Notes: This instruction's behavior is highly dependent on the structure of the loop body. For predictable CONTINUE behavior resembling typical while loops, the instructions intended to run before the loop check for the next iteration (e.g., INC Rx, ADD Rx, ...) should be placed immediately before the END instruction. Jumping to the line right before END assumes this instruction is the necessary update/check entry point before the loop back.
 HLT
 Syntax: HLT
 Description: Behavior depends on the interrupt enable flag.

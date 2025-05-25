@@ -266,22 +266,6 @@ LOOP Rx, line/label
 Syntax: LOOP <Rcounter>, <target_line/label>
 Description: Decrements Rcounter. If Rcounter is not zero after decrementing, jumps to the target.
 Flags Affected: None directly by LOOP (counter register is modified).
-LOOPE Rx, line/label (or LOOPZ)
-Syntax: LOOPE <Rcounter>, <target_line/label>
-Description: Decrements Rcounter. If Rcounter is not zero and the Zero Flag (ZF) is set, jumps to the target.
-Flags Affected: None directly by LOOPE.
-LOOPNE Rx, line/label (or LOOPNZ)
-Syntax: LOOPNE <Rcounter>, <target_line/label>
-Description: Decrements Rcounter. If Rcounter is not zero and the Zero Flag (ZF) is clear, jumps to the target.
-Flags Affected: None directly by LOOPNE.
-LOOPO Rx, line/label
-Syntax: LOOPO <Rcounter>, <target_line/label>
-Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag (OF) is set, jumps to the target.
-Flags Affected: None directly by LOOPO.
-LOOPNO Rx, line/label
-Syntax: LOOPNO <Rcounter>, <target_line/label>
-Description: Decrements Rcounter. If Rcounter is not zero and the Overflow Flag (OF) is clear, jumps to the target.
-Flags Affected: None directly by LOOPNO.
 --- Control Flow Instructions (continued) ---
 IF <Operand1> <ComparisonOperator> <Operand2>
 Syntax: IF <Operand1>, <ComparisonOperator>, <Operand2>

@@ -394,6 +394,15 @@ typedef struct {
 #define INT_DISK_INFO       0x62 // Get disk info -> R0=TotalSectors, R1=SectorSize
 #define INT_DISK_FORMAT     0x63 // Format (zero-fill) the entire disk -> R0=Status
 
+// Extended Graphics Output / Control
+#define INT_DRAW_LINE         0x70 // Draw line (R0=x1, R1=y1, R2=x2, R3=y2, R4=color_idx)
+#define INT_DRAW_RECT_FILLED  0x71 // Draw filled rectangle (R0=x, R1=y, R2=w, R3=h, R4=color_idx)
+#define INT_DRAW_RECT_HOLLOW  0x72 // Draw hollow rectangle (R0=x, R1=y, R2=w, R3=h, R4=color_idx)
+#define INT_DRAW_CIRCLE_FILLED 0x73 // Draw filled circle (R0=center_x, R1=center_y, R2=radius, R3=color_idx)
+#define INT_DRAW_CIRCLE_HOLLOW 0x74 // Draw hollow circle (R0=center_x, R1=center_y, R2=radius, R3=color_idx)
+#define INT_DRAW_TRIANGLE_FILLED 0x76 // Draw filled triangle (R0=x1, R1=y1, R2=x2, R3=y2, R4=x3, R5=y3, R6=color_idx)
+#define INT_DRAW_TRIANGLE_HOLLOW 0x77 // Draw hollow triangle (R0=x1, R1=y1, R2=x2, R3=y2, R4=x3, R5=y3, R6=color_idx)
+
 #define DISK_IMAGE_FILENAME "disk.img"
 #define DISK_IMAGE_SIZE_BYTES (16 * 1024 * 1024) // 16 MB
 #define DISK_SECTOR_SIZE 512
@@ -527,6 +536,12 @@ void fxchg(VirtualCPU* cpu, int freg1, int freg2);
 void fpow_op(VirtualCPU* cpu, int dest_freg, int src_freg);
 
 void audioCallback(void* userdata, Uint8* stream, int len);
+void draw_pixel_gfx(VirtualCPU* cpu, int x, int y, int color_index);
+void draw_line_gfx(VirtualCPU* cpu);
+void draw_rect_filled_gfx(VirtualCPU* cpu);
+void draw_rect_hollow_gfx(VirtualCPU* cpu);
+void draw_circle_filled_gfx(VirtualCPU* cpu);
+void draw_circle_hollow_gfx(VirtualCPU* cpu);
 
 bool isValidReg(int reg) {
     return reg >= 0 && reg < NUM_REGISTERS;
@@ -553,6 +568,321 @@ char* strdup_portable(const char* s) {
     memcpy(new_s, s, len);
     return new_s;
 #endif
+}
+
+void draw_pixel_gfx(VirtualCPU* cpu, int x, int y, int color_index) {
+    if (!cpu->pixels) return;
+
+    if (x >= 0 && x < cpu->screen_width && y >= 0 && y < cpu->screen_height &&
+        color_index >= 0 && color_index < PALETTE_SIZE)
+    {
+        SDL_Color palette_color = cpu->palette[color_index];
+        Uint32 color = ((Uint32)palette_color.a << 24) |
+            ((Uint32)palette_color.r << 16) |
+            ((Uint32)palette_color.g << 8) |
+            ((Uint32)palette_color.b);
+        cpu->pixels[y * cpu->screen_width + x] = color;
+    }
+    else {
+
+    }
+}
+
+void draw_line_gfx(VirtualCPU* cpu) {
+    int x1 = cpu->registers[0];
+    int y1 = cpu->registers[1];
+    int x2 = cpu->registers[2];
+    int y2 = cpu->registers[3];
+    int color_index = cpu->registers[4];
+
+    if (color_index < 0 || color_index >= PALETTE_SIZE) color_index = 0;
+
+    if (x1 > x2) {
+        int tmpx = x1; x1 = x2; x2 = tmpx;
+        int tmpy = y1; y1 = y2; y2 = tmpy;
+    }
+
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int sy = (y1 < y2) ? 1 : -1;
+    int err = dx - dy;
+
+    int current_x = x1;
+    int current_y = y1;
+
+    while (true) {
+        draw_pixel_gfx(cpu, current_x, current_y, color_index);
+
+        if (current_x == x2 && current_y == y2) break;
+
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            current_x += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            current_y += sy;
+        }
+
+        if (abs(current_x - x1) > MAX_SCREEN_DIM + MAX_SCREEN_DIM ||
+            abs(current_y - y1) > MAX_SCREEN_DIM + MAX_SCREEN_DIM) {
+            fprintf(stderr, "Warning DRAW_LINE: Potential infinite loop detected for line from (%d,%d) to (%d,%d) at line %d. Aborting drawing.\n",
+                cpu->registers[0], cpu->registers[1], cpu->registers[2], cpu->registers[3], cpu->ip + 1);
+            break;
+        }
+    }
+
+    if (cpu->screen_on == 1) {
+        updateScreen(cpu);
+    }
+}
+
+void draw_line_gfx_impl(VirtualCPU* cpu, int x1, int y1, int x2, int y2, int color_index) {
+    if (x1 == x2 && y1 == y2) {
+        draw_pixel_gfx(cpu, x1, y1, color_index);
+        return;
+    }
+
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int sy = (y1 < y2) ? 1 : -1;
+    int err = dx - dy;
+
+    int current_x = x1;
+    int current_y = y1;
+
+    int step_count = 0;
+    const int max_steps = cpu->screen_width + cpu->screen_height + 100;
+
+    while (true) {
+        draw_pixel_gfx(cpu, current_x, current_y, color_index);
+
+        if (current_x == x2 && current_y == y2) break;
+
+        step_count++;
+        if (step_count > max_steps) {
+            fprintf(stderr, "Warning draw_line_gfx_impl: Exceeded max steps (%d) for line from (%d,%d) to (%d,%d) at line %d. Aborting drawing.\n",
+                max_steps, x1, y1, x2, y2, cpu->ip + 1);
+            break;
+        }
+
+        int e2 = 2 * err;
+
+        if (e2 > -dy) {
+            err -= dy;
+            current_x += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            current_y += sy;
+        }
+    }
+}
+
+// Draws a filled rectangle
+void draw_rect_filled_gfx(VirtualCPU* cpu) {
+    int x = cpu->registers[0];
+    int y = cpu->registers[1];
+    int w = cpu->registers[2];
+    int h = cpu->registers[3];
+    int color_index = cpu->registers[4];
+
+    if (w <= 0 || h <= 0) return;
+    if (color_index < 0 || color_index >= PALETTE_SIZE) color_index = 0;
+
+    int start_x = (x < 0) ? 0 : x;
+    int start_y = (y < 0) ? 0 : y;
+    int end_x = (x + w > cpu->screen_width) ? cpu->screen_width : x + w;
+    int end_y = (y + h > cpu->screen_height) ? cpu->screen_height : y + h;
+
+    if (start_x >= end_x || start_y >= end_y) return;
+
+    for (int current_y = start_y; current_y < end_y; ++current_y) {
+        for (int current_x = start_x; current_x < end_x; ++current_x) {
+            draw_pixel_gfx(cpu, current_x, current_y, color_index);
+        }
+    }
+
+    if (cpu->screen_on == 1) {
+        updateScreen(cpu);
+    }
+}
+
+void draw_rect_hollow_gfx(VirtualCPU* cpu) {
+    int x = cpu->registers[0];
+    int y = cpu->registers[1];
+    int w = cpu->registers[2];
+    int h = cpu->registers[3];
+    int color_index = cpu->registers[4];
+
+    if (w <= 0 || h <= 0) return;
+    if (color_index < 0 || color_index >= PALETTE_SIZE) color_index = 0;
+
+    int r0_orig = cpu->registers[0];
+    int r1_orig = cpu->registers[1];
+    int r2_orig = cpu->registers[2];
+    int r3_orig = cpu->registers[3];
+    int r4_orig = cpu->registers[4];
+
+    cpu->registers[0] = x;
+    cpu->registers[1] = y;
+    cpu->registers[2] = x + w - 1;
+    cpu->registers[3] = y;
+    cpu->registers[4] = color_index;
+    draw_line_gfx(cpu);
+
+    cpu->registers[0] = x;
+    cpu->registers[1] = y + h - 1;
+    cpu->registers[2] = x + w - 1;
+    cpu->registers[3] = y + h - 1;
+    cpu->registers[4] = color_index;
+    draw_line_gfx(cpu);
+
+    cpu->registers[0] = x;
+    cpu->registers[1] = y;
+    cpu->registers[2] = x;
+    cpu->registers[3] = y + h - 1;
+    cpu->registers[4] = color_index;
+    draw_line_gfx(cpu);
+
+    cpu->registers[0] = x + w - 1;
+    cpu->registers[1] = y;
+    cpu->registers[2] = x + w - 1;
+    cpu->registers[3] = y + h - 1;
+    cpu->registers[4] = color_index;
+    draw_line_gfx(cpu);
+
+    cpu->registers[0] = r0_orig;
+    cpu->registers[1] = r1_orig;
+    cpu->registers[2] = r2_orig;
+    cpu->registers[3] = r3_orig;
+    cpu->registers[4] = r4_orig;
+}
+
+void draw_circle_points(VirtualCPU* cpu, int cx, int cy, int x, int y, int color_index) {
+    draw_pixel_gfx(cpu, cx + x, cy + y, color_index);
+    draw_pixel_gfx(cpu, cx - x, cy + y, color_index);
+    draw_pixel_gfx(cpu, cx + x, cy - y, color_index);
+    draw_pixel_gfx(cpu, cx - x, cy - y, color_index);
+    draw_pixel_gfx(cpu, cx + y, cy + x, color_index);
+    draw_pixel_gfx(cpu, cx - y, cy + x, color_index);
+    draw_pixel_gfx(cpu, cx + y, cy - x, color_index);
+    draw_pixel_gfx(cpu, cx - y, cy - x, color_index);
+}
+
+// Draws a hollow circle using the Midpoint Circle Algorithm
+void draw_circle_hollow_gfx(VirtualCPU* cpu) {
+    int cx = cpu->registers[0];
+    int cy = cpu->registers[1];
+    int radius = cpu->registers[2];
+    int color_index = cpu->registers[3];
+
+    if (radius <= 0) {
+        if (radius == 0) draw_pixel_gfx(cpu, cx, cy, color_index);
+        return;
+    }
+    if (color_index < 0 || color_index >= PALETTE_SIZE) color_index = 0;
+
+    int x = 0;
+    int y = radius;
+    int p = 1 - radius;
+
+    draw_circle_points(cpu, cx, cy, x, y, color_index);
+
+    while (x < y) {
+        x++;
+        if (p < 0) {
+            p += 2 * x + 1;
+        }
+        else {
+            y--;
+            p += 2 * (x - y) + 1;
+        }
+        draw_circle_points(cpu, cx, cy, x, y, color_index);
+    }
+}
+
+void draw_circle_filled_gfx(VirtualCPU* cpu) {
+    int cx = cpu->registers[0];
+    int cy = cpu->registers[1];
+    int radius = cpu->registers[2];
+    int color_index = cpu->registers[3];
+
+    if (radius <= 0) {
+        if (radius == 0) draw_pixel_gfx(cpu, cx, cy, color_index);
+        return;
+    }
+    if (color_index < 0 || color_index >= PALETTE_SIZE) color_index = 0;
+
+    for (int y = -radius; y <= radius; ++y) {
+        int dy_sq = y * y;
+        int radius_sq = radius * radius;
+        int dx_sq = radius_sq - dy_sq;
+
+        if (dx_sq >= 0) {
+            int dx = round(sqrt(dx_sq));
+
+            int start_x = cx - dx;
+            int end_x = cx + dx;
+            int current_y = cy + y;
+
+            for (int current_x = start_x; current_x <= end_x; ++current_x) {
+                draw_pixel_gfx(cpu, current_x, current_y, color_index);
+            }
+        }
+    }
+}
+
+long long triangle_signed_area_test(long long p1x, long long p1y, long long p2x, long long p2y, long long ptx, long long pty) {
+    return (p2x - p1x) * (pty - p1y) - (ptx - p1x) * (p2y - p1y);
+}
+
+void draw_triangle_filled_gfx(VirtualCPU* cpu) {
+    int x1 = cpu->registers[0]; int y1 = cpu->registers[1];
+    int x2 = cpu->registers[2]; int y2 = cpu->registers[3];
+    int x3 = cpu->registers[4]; int y3 = cpu->registers[5];
+    int color_index = cpu->registers[6];
+
+    int min_x = SDL_min(x1, SDL_min(x2, x3));
+    int max_x = SDL_max(x1, SDL_max(x2, x3));
+    int min_y = SDL_min(y1, SDL_min(y2, y3));
+    int max_y = SDL_max(y1, SDL_max(y2, y3));
+
+    min_x = SDL_max(min_x, 0);
+    min_y = SDL_max(min_y, 0);
+    max_x = SDL_min(max_x, cpu->screen_width - 1);
+    max_y = SDL_min(max_y, cpu->screen_height - 1);
+
+    for (int py = min_y; py <= max_y; ++py) {
+        for (int px = min_x; px <= max_x; ++px) {
+            long long d1 = triangle_signed_area_test(x1, y1, x2, y2, px, py);
+            long long d2 = triangle_signed_area_test(x2, y2, x3, y3, px, py);
+            long long d3 = triangle_signed_area_test(x3, y3, x1, y1, px, py);
+
+            bool has_neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool has_pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+
+            bool is_inside = !(has_neg && has_pos);
+
+            if (is_inside) {
+                draw_pixel_gfx(cpu, px, py, color_index);
+            }
+        }
+    }
+}
+
+void draw_triangle_hollow_gfx(VirtualCPU* cpu) {
+    int x1 = cpu->registers[0]; int y1 = cpu->registers[1];
+    int x2 = cpu->registers[2]; int y2 = cpu->registers[3];
+    int x3 = cpu->registers[4]; int y3 = cpu->registers[5];
+    int color_index = cpu->registers[6];
+
+    draw_line_gfx_impl(cpu, x1, y1, x2, y2, color_index);
+    draw_line_gfx_impl(cpu, x2, y2, x3, y3, color_index);
+    draw_line_gfx_impl(cpu, x3, y3, x1, y1, color_index);
 }
 
 int parse_condition_operands(const char* line_ptr, char* reg1_str, char* op_str, char* val_str, int max_val_len, int line_num) {
@@ -1962,19 +2292,7 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
         int x = cpu->registers[0];
         int y = cpu->registers[1];
         int color_index = cpu->registers[2];
-
-        if (!cpu->pixels) break;
-
-        if (x >= 0 && x < cpu->screen_width && y >= 0 && y < cpu->screen_height &&
-            color_index >= 0 && color_index < PALETTE_SIZE)
-        {
-            SDL_Color palette_color = cpu->palette[color_index];
-            Uint32 color = ((Uint32)palette_color.a << 24) |
-                ((Uint32)palette_color.r << 16) |
-                ((Uint32)palette_color.g << 8) |
-                ((Uint32)palette_color.b);
-            cpu->pixels[y * cpu->screen_width + x] = color;
-        }
+        draw_pixel_gfx(cpu, x, y, color_index);
         if (cpu->screen_on == 1) {
             updateScreen(cpu);
         }
@@ -1984,7 +2302,6 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
     {
         int color_index = cpu->registers[0];
         if (!cpu->pixels) break;
-
         if (color_index >= 0 && color_index < PALETTE_SIZE) {
             SDL_Color palette_color = cpu->palette[color_index];
             Uint32 clear_color = ((Uint32)palette_color.a << 24) |
@@ -2214,6 +2531,49 @@ void interrupt(VirtualCPU* cpu, int interrupt_id) {
     case INT_UPDATE_GFX_SCREEN: // 0x19
         updateScreen(cpu);
         break;
+    case INT_DRAW_LINE: // 0x70
+        draw_line_gfx(cpu);
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+    case INT_DRAW_RECT_FILLED: // 0x71
+        draw_rect_filled_gfx(cpu);
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+    case INT_DRAW_RECT_HOLLOW: // 0x72
+        draw_rect_hollow_gfx(cpu);
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+    case INT_DRAW_CIRCLE_FILLED: // 0x73
+        draw_circle_filled_gfx(cpu);
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+    case INT_DRAW_CIRCLE_HOLLOW: // 0x74
+        draw_circle_hollow_gfx(cpu);
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+    case INT_DRAW_TRIANGLE_FILLED: // 0x76
+        draw_triangle_filled_gfx(cpu);
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+    case INT_DRAW_TRIANGLE_HOLLOW: // 0x77
+        draw_triangle_hollow_gfx(cpu);
+        if (cpu->screen_on == 1) {
+            updateScreen(cpu);
+        }
+        break;
+
 
     case INT_SPEAKER_ON: // 0x20
         SDL_LockAudioDevice(cpu->audioDevice);

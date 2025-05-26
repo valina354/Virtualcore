@@ -598,3 +598,40 @@ Input: None. Output: R0 = Total number of sectors on the disk, R1 = Size of each
 0x63 (INT_DISK_FORMAT)
 Description: Writes zeros to all sectors of the simulated disk image file (disk.img), effectively formatting it.
 Input: None. Output: R0 = Status code (0=Success, 3=File I/O Error).
+--- Extended Graphics Output / Control ---
+0x70 (INT_DRAW_LINE)
+Description: Draws a line between two points on the graphics screen using the specified palette color.
+Input: R0 = X1 coordinate, R1 = Y1 coordinate, R2 = X2 coordinate, R3 = Y2 coordinate, R4 = Palette color index (0-15).
+Output: None.
+Notes: Draws the line into the internal screen buffer. Pixels outside the screen bounds are clipped. An invalid color index defaults to 0. The screen is updated automatically if INT_SCREEN_ON is active (INT 0x12). If INT_SCREEN_OFF (INT 0x13) is active, you must call INT_UPDATE_GFX_SCREEN (INT 0x19) to see the changes.
+0x71 (INT_DRAW_RECT_FILLED)
+Description: Draws a filled rectangle on the graphics screen using the specified palette color.
+Input: R0 = Top-left X coordinate, R1 = Top-left Y coordinate, R2 = Width, R3 = Height, R4 = Palette color index (0-15).
+Output: None.
+Notes: Draws the rectangle into the internal screen buffer. Pixels outside the screen bounds are clipped. An invalid color index defaults to 0. Width or height less than or equal to 0 results in no drawing. The screen is updated automatically if INT_SCREEN_ON is active (INT 0x12). If INT_SCREEN_OFF (INT 0x13) is active, you must call INT_UPDATE_GFX_SCREEN (INT 0x19) to see the changes.
+0x72 (INT_DRAW_RECT_HOLLOW)
+Description: Draws a hollow rectangle outline on the graphics screen using the specified palette color.
+Input: R0 = Top-left X coordinate, R1 = Top-left Y coordinate, R2 = Width, R3 = Height, R4 = Palette color index (0-15).
+Output: None.
+Notes: Draws the rectangle outline into the internal screen buffer by drawing four lines. Pixels outside the screen bounds are clipped. An invalid color index defaults to 0. Width or height less than or equal to 0 results in no drawing. The screen is updated automatically if INT_SCREEN_ON is active (INT 0x12). If INT_SCREEN_OFF (INT 0x13) is active, you must call INT_UPDATE_GFX_SCREEN (INT 0x19) to see the changes. The outline is 1 pixel thick.
+0x73 (INT_DRAW_CIRCLE_FILLED)
+Description: Draws a filled circle on the graphics screen using the specified palette color.
+Input: R0 = Center X coordinate, R1 = Center Y coordinate, R2 = Radius, R3 = Palette color index (0-15).
+Output: None.
+Notes: Draws the circle into the internal screen buffer. Pixels outside the screen bounds are clipped. An invalid color index defaults to 0. A radius less than or equal to 0 draws only a single pixel at the center (if radius is 0). The screen is updated automatically if INT_SCREEN_ON is active (INT 0x12). If INT_SCREEN_OFF (INT 0x13) is active, you must call INT_UPDATE_GFX_SCREEN (INT 0x19) to see the changes.
+0x74 (INT_DRAW_CIRCLE_HOLLOW)
+Description: Draws a hollow circle outline on the graphics screen using the specified palette color.
+Input: R0 = Center X coordinate, R1 = Center Y coordinate, R2 = Radius, R3 = Palette color index (0-15).
+Output: None.
+Notes: Draws the circle outline into the internal screen buffer. Pixels outside the screen bounds are clipped. An invalid color index defaults to 0. A radius less than or equal to 0 draws only a single pixel at the center (if radius is 0). The screen is updated automatically if INT_SCREEN_ON is active (INT 0x12). If INT_SCREEN_OFF (INT 0x13) is active, you must call INT_UPDATE_GFX_SCREEN (INT 0x19) to see the changes. The outline is 1 pixel thick.
+0x75: (This interrupt is not defined in the provided code snippet.)
+0x76 (INT_DRAW_TRIANGLE_FILLED)
+Description: Draws a filled triangle on the graphics screen defined by three vertex points using the specified palette color.
+Input: R0 = X1, R1 = Y1, R2 = X2, R3 = Y2, R4 = X3, R5 = Y3, R6 = Palette color index (0-15).
+Output: None.
+Notes: Draws the triangle into the internal screen buffer. Pixels outside the screen bounds are clipped. An invalid color index defaults to 0. The screen is updated automatically if INT_SCREEN_ON is active (INT 0x12). If INT_SCREEN_OFF (INT 0x13) is active, you must call INT_UPDATE_GFX_SCREEN (INT 0x19) to see the changes.
+0x77 (INT_DRAW_TRIANGLE_HOLLOW)
+Description: Draws a hollow triangle outline on the graphics screen defined by three vertex points using the specified palette color.
+Input: R0 = X1, R1 = Y1, R2 = X2, R3 = Y2, R4 = X3, R5 = Y3, R6 = Palette color index (0-15).
+Output: None.
+Notes: Draws the triangle outline into the internal screen buffer by drawing three lines. Pixels outside the screen bounds are clipped. An invalid color index defaults to 0. The screen is updated automatically if INT_SCREEN_ON is active (INT 0x12). If INT_SCREEN_OFF (INT 0x13) is active, you must call INT_UPDATE_GFX_SCREEN (INT 0x19) to see the changes. The outline is 1 pixel thick.

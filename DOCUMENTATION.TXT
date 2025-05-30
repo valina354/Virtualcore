@@ -275,6 +275,11 @@ WHILE <Operand1> <ComparisonOperator> <Operand2>
 Syntax: WHILE <Operand1>, <ComparisonOperator>, <Operand2>
 Description: Starts a loop block. <Operand1>, <Operand2>, and <ComparisonOperator> are the same as for the IF instruction. The instruction evaluates the comparison. If the condition is true, execution proceeds to the instruction immediately following the WHILE (the beginning of the loop body). If the condition is false, execution skips forward to the instruction immediately following the corresponding END instruction, exiting the loop. The END instruction matching a WHILE is responsible for jumping back to the start of the loop body.
 Flags Affected: None directly by the WHILE instruction itself. The comparison is evaluated using the values of the operands.
+ELSE
+Syntax: ELSE
+Description: Designates the start of the "else" block within an IF...END structure. If the condition tested by the IF instruction is false, execution jumps to the instruction immediately following the ELSE.
+Flags Affected: None
+Usage Notes: An ELSE is optional within an IF structure. If no ELSE is present, and the IF condition is false, execution simply skips to the instruction after the END. You cannot have multiple ELSE statements within a single IF structure. The ELSE must be inside the same block as the IF.
 END
 Syntax: END
 Description: Marks the end of an IF or WHILE block. Every IF or WHILE must have a corresponding END. Blocks can be nested.

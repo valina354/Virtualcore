@@ -303,7 +303,7 @@ typedef enum {
     FMOV, FADD, FSUB, FMUL, FDIV, FCMP, FABS, FNEG, FSQRT, CVTIF, CVTFI,
     FLOAD, FSTORE, FINC, FDEC, FPUSH, FPOP, FCLR, FXCHG, FPOW,
     CALLH, CALLL, CALLE, CALLNE, CALLO, CALLNO, CALLHE, CALLLE,
-    IF, END, WHILE, BREAK, CONTINUE,
+    IF, ELSE, END, WHILE, BREAK, CONTINUE,
     INVALID_INST
 } InstructionType;
 
@@ -1449,6 +1449,7 @@ InstructionType parseInstruction(const char* instruction) {
     if (strcasecmp(instruction, "CALLHE") == 0) return CALLHE;
     if (strcasecmp(instruction, "CALLLE") == 0) return CALLLE;
     if (strcasecmp(instruction, "IF") == 0) return IF;
+    if (strcasecmp(instruction, "ELSE") == 0) return ELSE;
     if (strcasecmp(instruction, "END") == 0) return END;
     if (strcasecmp(instruction, "WHILE") == 0) return WHILE;
     if (strcasecmp(instruction, "BREAK") == 0) return BREAK;
@@ -4509,9 +4510,11 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                 break;
             }
 
-            if (condition_is_true == 0) {
+            if (condition_is_true == 0) { // Condition is FALSE
+
                 int nested_level = 0;
                 int scan_ip = cpu->ip + 1;
+                bool found_else = false;
                 bool found_end = false;
 
                 while (scan_ip < program_size) {
@@ -4532,23 +4535,79 @@ void execute(VirtualCPU* cpu, char* program[], int program_size, bool debug_mode
                     if (scanned_inst == IF || scanned_inst == WHILE) {
                         nested_level++;
                     }
+                    else if (scanned_inst == ELSE && nested_level == 0) {
+                        found_else = true;
+                        cpu->ip = scan_ip;
+                        break;
+                    }
                     else if (scanned_inst == END) {
                         if (nested_level > 0) {
                             nested_level--;
                         }
                         else {
-                            cpu->ip = scan_ip;
                             found_end = true;
+                            cpu->ip = scan_ip;
                             break;
                         }
                     }
                     scan_ip++;
                 }
 
-                if (!found_end) {
+                if (!found_else && !found_end) {
                     fprintf(stderr, "Error: Matching END not found for IF starting at line %d. Execution halted.\n", current_ip + 1);
                     running = false;
                 }
+                else if (found_else)
+                {
+
+
+                }
+                else
+                {
+
+                }
+            }
+            break;
+        }
+        case ELSE: {
+            int nested_level = 0;
+            int scan_ip = cpu->ip + 1;
+            bool found_end = false;
+
+            while (scan_ip < program_size) {
+                char scan_op_str_buf[MAX_LINE_LENGTH];
+                char* scan_line = program[scan_ip];
+                if (!scan_line) { scan_ip++; continue; }
+
+                char* scan_ptr = scan_line;
+                while (*scan_ptr && isspace((unsigned char)*scan_ptr)) scan_ptr++;
+                int scan_op_idx = 0;
+                while (*scan_ptr && !isspace((unsigned char)*scan_ptr) && *scan_ptr != ',' && scan_op_idx < sizeof(scan_op_str_buf) - 1) {
+                    scan_op_str_buf[scan_op_idx++] = toupper((unsigned char)*scan_ptr++);
+                }
+                scan_op_str_buf[scan_op_idx] = '\0';
+
+                InstructionType scanned_inst = parseInstruction(scan_op_str_buf);
+
+                if (scanned_inst == IF || scanned_inst == WHILE) {
+                    nested_level++;
+                }
+                else if (scanned_inst == END) {
+                    if (nested_level > 0) {
+                        nested_level--;
+                    }
+                    else {
+                        cpu->ip = scan_ip;
+                        found_end = true;
+                        break;
+                    }
+                }
+                scan_ip++;
+            }
+
+            if (!found_end) {
+                fprintf(stderr, "Error: Matching END not found for ELSE at line %d. Execution halted.\n", cpu->ip + 1);
+                running = false;
             }
             break;
         }
